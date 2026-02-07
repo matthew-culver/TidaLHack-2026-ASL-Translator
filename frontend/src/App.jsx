@@ -14,6 +14,25 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import titleImg from "./assets/title.jpeg";
 
+//send video file to backend and get translation response (placeholder for now)
+async function sendVideoToBackend(file) {
+  const form = new FormData();
+  form.append("video", file);
+
+  const res = await fetch("/api/translate", {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(txt || "Upload failed");
+  }
+
+  return res.json();
+}
+
+
 function PageFrame({ children }) {
   return (
     <div className="min-h-screen w-full bg-black text-neutral-50 flex items-center justify-center p-6">
@@ -123,7 +142,7 @@ function AppScreen({ onBack }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const pickUpload = (e) => {
+  const pickUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -131,8 +150,17 @@ function AppScreen({ onBack }) {
     const url = URL.createObjectURL(file);
     setVideoSrc(url);
 
+    // show preview immediately (keep this)
     setConfidence(0.98);
-    setOutputText("(Preview) Uploaded video ready. Hook this up to your backend to populate translation text.");
+    setOutputText("Uploading…");
+
+    // NEW: send to backend
+    try {
+      const data = await sendVideoToBackend(file);
+      setOutputText(data.text || "(No text returned)");
+    } catch (err) {
+      setOutputText(`Upload error: ${err.message}`);
+    }
 
     e.target.value = "";
   };
