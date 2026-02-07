@@ -57,8 +57,45 @@ app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
+const http = require("http");
+const WebSocket = require("ws");
+
+// instead of app.listen(...)
+const server = http.createServer(app);
+
+const wss = new WebSocket.Server({ server, path: "/ws" });
+
+wss.on("connection", (ws) => {
+  console.log("✅ WS client connected");
+
+  ws.on("message", async (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+
+      if (data.type === "frame") {
+        // data.image is base64 JPEG (no data:image/... prefix)
+        const jpegBuffer = Buffer.from(data.image, "base64");
+
+        // TODO: run your real inference here (pose/model/etc.)
+        // For now: placeholder "live" response
+        ws.send(
+          JSON.stringify({
+            type: "partial",
+            text: "Live translating… (placeholder)",
+            confidence: 0.87,
+          })
+        );
+      }
+    } catch (e) {
+      ws.send(JSON.stringify({ type: "error", message: e.message }));
+    }
+  });
+
+  ws.on("close", () => console.log("❌ WS client disconnected"));
+});
+
 // Start server
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 API endpoint: http://localhost:${PORT}/api/translate`);
 });
