@@ -214,7 +214,7 @@ async function seedDatabase() {
 }
 
 seedDatabase();
-```
+/*```
 
 ---
 
@@ -277,3 +277,4 @@ Returns JSON to frontend:
 [Frontend displays result]
         ↓
 [Loop repeats every 500ms]```
+*/
