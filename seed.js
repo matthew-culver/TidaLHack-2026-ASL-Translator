@@ -1,6 +1,6 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
-const SignVocabulary = require('models/SignVocabulary');
+const SignVocabulary = require('./models/SignVocabulary');
 
 const signs = [
   {
