@@ -131,6 +131,18 @@ function AppScreen({ onBack }) {
 
   const confidenceLabel = useMemo(() => `${Math.round(confidence * 100)}%`, [confidence]);
 
+
+  useEffect(() => {
+    if (mode !== "camera") return;
+    if (!livePreviewRef.current) return;
+    if (!streamRef.current) return;
+
+    livePreviewRef.current.srcObject = streamRef.current;
+
+    // Some browsers need an explicit play() to render frames
+    livePreviewRef.current.play?.().catch(() => {});
+  }, [mode, videoSrc]);
+
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -166,18 +178,30 @@ function AppScreen({ onBack }) {
   };
 
   const enableCamera = async () => {
-    try {
-      if (streamRef.current) {
-        setMode("camera");
-        if (livePreviewRef.current) livePreviewRef.current.srcObject = streamRef.current;
-        return;
-      }
+    // Switch UI from recorded playback back to live preview
+    if (videoSrc) {
+      URL.revokeObjectURL(videoSrc);
+      setVideoSrc("");
+    }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    // If we have a stream but it’s dead, discard it
+    if (streamRef.current) {
+      const hasLiveTrack = streamRef.current
+        .getTracks()
+        .some((t) => t.readyState === "live");
+
+      if (!hasLiveTrack) {
+        streamRef.current = null;
+      }
+    }
+
+    try {
+      const stream =
+        streamRef.current ??
+        (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
+
       streamRef.current = stream;
       setMode("camera");
-      if (livePreviewRef.current) livePreviewRef.current.srcObject = stream;
-
       setOutputText("Camera enabled. You can start recording now.");
     } catch (err) {
       console.error(err);
@@ -185,6 +209,7 @@ function AppScreen({ onBack }) {
       setMode("idle");
     }
   };
+
 
   const startRecording = () => {
     if (!streamRef.current) {
@@ -208,7 +233,12 @@ function AppScreen({ onBack }) {
         const url = URL.createObjectURL(blob);
         if (videoSrc) URL.revokeObjectURL(videoSrc);
         setVideoSrc(url);
+        
+        if (livePreviewRef.current) {
+          livePreviewRef.current.srcObject = null;
+        }
 
+        setMode("idle");
         setConfidence(0.98);
         setOutputText("(Preview) Recorded video saved. Send this blob to your backend for translation.");
       };
@@ -255,9 +285,21 @@ function AppScreen({ onBack }) {
         <Card className="lg:col-span-8 p-4 sm:p-6">
           <div className="aspect-video rounded-2xl border border-neutral-800 bg-neutral-900/40 overflow-hidden flex items-center justify-center">
             {videoSrc ? (
-              <video src={videoSrc} controls className="h-full w-full object-contain" />
+              <video
+                key={videoSrc}
+                src={videoSrc}
+                controls
+                className="h-full w-full object-contain"
+              />
             ) : mode === "camera" ? (
-              <video ref={livePreviewRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+              <video
+                key="live"
+                ref={livePreviewRef}
+                autoPlay
+                muted
+                playsInline
+                className="h-full w-full object-cover pointer-events-none"
+              />
             ) : (
               <div className="text-center px-6">
                 <NeonText className="text-lg font-semibold">Upload Media</NeonText>
