@@ -72,14 +72,20 @@ ${contextText}
 
 # ANALYSIS REQUIREMENTS
 
-## 1. SPATIAL ANALYSIS (CRITICAL - This is why we're using Gemini)
-- Determine EXACT 3D hand position relative to body parts
-  Example: "Hand is 12cm from chin, 5cm forward from face plane, 30° angle from vertical"
-- Identify hand orientation in 3D space
-  Example: "Palm facing 45° left, fingers pointing upward-forward at 20° from vertical"
-- For two-handed signs: measure distance between hands
-  Example: "Hands are 8cm apart, parallel orientation"
-- NOTE: Describe position relative to BODY, not camera
+## 1. SPATIAL ANALYSIS (CRITICAL)
+You MUST use measurement formats that are realistic from a single RGB camera:
+- Use normalized image coordinates (0..1): "handCenter: (x=0.62, y=0.41)"
+- Use relative body units when possible:
+  - HH = head-height units (distance divided by head bounding-box height)
+  - SW = shoulder-width units (distance divided by shoulder width, if visible)
+Examples:
+- "Hand is ~0.20 HH below forehead, ~0.10 SW to the right of face midline"
+- "Hand is at chin level (±0.05 HH), slightly forward toward camera (inferred from foreshortening)"
+Orientation:
+- Use qualitative or approximate angles ONLY when clearly visible:
+  "palm facing camera", "palm facing left", "fingers pointing up-right"
+Do NOT invent centimeters. If scale is unknown, state measurements in HH/SW or normalized coords.
+
 
 ## 2. TEMPORAL ANALYSIS (CRITICAL - This is why we need multiple frames)
 - Track motion patterns across frames

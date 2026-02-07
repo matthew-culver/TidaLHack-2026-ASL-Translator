@@ -21,7 +21,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Multer setup for handling video uploads
 const upload = multer({ storage: multer.memoryStorage() });
-app.post("/api/translate", upload.single("video"), async (req, res) => {
+app.post("/api/translate/video", upload.single("video"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No video uploaded" });
   }
