@@ -1,4 +1,4 @@
-const SignVocabulary = require('models/SignVocabulary');
+const SignVocabulary = require('../models/SignVocabulary');
 const TranslationSession = require('../models/TranslationSession');
 
 /**

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { analyzeASLSign } = require('../services/gemini');
-const { getVocabulary, saveTranslation, createSession, getSession } = require('services/mongodb');
+const { getVocabulary, saveTranslation, createSession, getSession } = require('../services/mongodb');
 const { v4: uuidv4 } = require('uuid');
 
 /**
