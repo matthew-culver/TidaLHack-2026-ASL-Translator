@@ -1,5 +1,20 @@
 //gemini.js
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+// ✅ Model cache so we don't recreate clients/models on every frame
+const modelCache = new Map(); // apiKey -> model
+
+function getModelForKey(apiKey) {
+  if (modelCache.has(apiKey)) return modelCache.get(apiKey);
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: { temperature: 0.4, topP: 0.8, topK: 40 }
+  });
+
+  modelCache.set(apiKey, model);
+  return model;
+}
 
 // ✅ Load all API keys
 const API_KEYS = [
@@ -10,6 +25,14 @@ const API_KEYS = [
   process.env.GEMINI_API_KEY_5,
   process.env.GEMINI_API_KEY_6,
   process.env.GEMINI_API_KEY_7,
+  process.env.GEMINI_API_KEY_8,
+  process.env.GEMINI_API_KEY_9,
+  process.env.GEMINI_API_KEY_10,
+  process.env.GEMINI_API_KEY_11,
+  process.env.GEMINI_API_KEY_12,
+  process.env.GEMINI_API_KEY_13,
+  process.env.GEMINI_API_KEY_14,
+  process.env.GEMINI_API_KEY_15,
 ].filter(Boolean); // Remove undefined keys
 
 let currentKeyIndex = 0;
@@ -27,7 +50,7 @@ function rotateToNextKey() {
 
 console.log(`📦 Loaded ${API_KEYS.length} Gemini API keys for rotation`);
 const stageACache = new Map();
-const STAGEA_TTL_MS = 12000;
+const STAGEA_TTL_MS = 30_000;
 
 // Removes ```json fences and trims
 function stripCodeFences(text) {
@@ -204,16 +227,7 @@ Conversation context (previous detected signs): ${contextSigns || "(none)"}
  */
 async function analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary, sessionKey) {
   const apiKey = API_KEYS[currentKeyIndex];
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ 
-    model: 'gemini-2.5-flash',
-    generationConfig: {
-      temperature: 0.4,  // Lower = more consistent, higher = more creative
-      topP: 0.8,
-      topK: 40,
-    }
-  });
-  
+  const model = getModelForKey(apiKey);  
   // Build vocabulary reference string -- COMMENTED TEMPORARILY
   // const vocabText = vocabulary.map(sign => {
   //   let text = `\n${sign.signName.toUpperCase()}:
@@ -243,31 +257,30 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
         `${i + 1}. "${c.sign}" (${Math.round(c.confidence * 100)}% confidence)`
       ).join(' → ')
     : "This is the first sign in the conversation.";
-  const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
-  // const key = sessionKey || "no-session";
-  // const now = Date.now();
+    const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
+  const key = sessionKey || "no-session";
+  const now = Date.now();
 
-  // let features;
-  // const cached = stageACache.get(key);
+  let features;
+  const cached = stageACache.get(key);
 
-  // if (cached && (now - cached.at) < STAGEA_TTL_MS) {
-  //   features = cached.features;
-  // } else {
-  //   features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
-  //   stageACache.set(key, { at: now, features });
-  //   // tiny cleanup: prevent unbounded growth
-  //   if (stageACache.size > 500) {
-  //     for (const [k, v] of stageACache) {
-  //       if ((now - v.at) > 10_000) stageACache.delete(k); // delete anything older than 10s
-  //     }
-  //   }
-  // }
+  if (cached && (now - cached.at) < STAGEA_TTL_MS) {
+    features = cached.features;
+  } else {
+    features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
+    stageACache.set(key, { at: now, features });
 
-  // console.log("Stage A features:", features);
+    // prevent unbounded growth
+    if (stageACache.size > 500) {
+      for (const [k, v] of stageACache) {
+        if ((now - v.at) > 30_000) stageACache.delete(k);
+      }
+    }
+  }
 
-  // const candidates = shortlistVocabulary(vocabulary, features, 7);
-  const candidates = vocabulary || [];
-  const features = { skipped: true };
+  console.log("Stage A features:", features);
+
+  const candidates = shortlistVocabulary(vocabulary, features, 7);
 
   if (!candidates || candidates.length === 0) {
     return {
@@ -312,26 +325,38 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
 
 
   // THE PROMPT - This is where the magic happens
-  const prompt = `Analyze ASL frames (oldest→newest, last is current).
+  const prompt = `You are an expert ASL interpreter analyzing webcam frames for a hackathon demo showcasing Gemini's spatial reasoning and temporal analysis.
 
-VOCABULARY (choose from these):
+VOCABULARY (detect from these only):
 ${vocabText}
 
-PREVIOUS: ${contextText}
+PREVIOUS SIGNS: ${contextText}
 
-Return JSON only (no markdown):
+Analyze frames (oldest→newest, last is current) and return ONLY JSON (no markdown):
+
 {
-  "detectedSign": "name OR null",
+  "detectedSign": "sign name OR null",
   "confidence": 0.85,
-  "reasoning": "Hand: [shape] at [location]. Motion: [description]. This is '[SIGN]' because: [why]. Not '[SIMILAR]' because: [difference]."
+  "reasoning": "I see [hand shape] at [location]. Motion: [description]. This is '[SIGN]' because: [key features]. Not '[SIMILAR]' because: [specific difference].",
+  "handShape": "finger/thumb/palm positions",
+  "handLocation": "using HH (head-height) or SW (shoulder-width) units",
+  "handOrientation": "palm/finger direction",
+  "motion": "type and pattern using HH/SW",
+  "spatialAnalysis": "3D positioning with body-relative measurements",
+  "temporalAnalysis": "frame-by-frame motion tracking",
+  "contextRelevance": "how previous signs inform this",
+  "correction": null OR "specific feedback",
+  "alternativeSigns": [{"sign":"name","confidence":0.1,"reason":"why less likely"}],
+  "differentiationNotes": "explicit differences from similar signs"
 }
 
-Rules:
-- Use HH (head-height) / SW (shoulder-width) units
-- Track motion across frames
-- Explain differentiation from similar signs
-- Only detect from vocabulary or null
-- Be concise but clear`;
+CRITICAL: 
+- Mother vs Father: VERTICAL POSITION is key (chin vs forehead, ~0.25 HH difference)
+- Hello vs Goodbye: MOTION TYPE is key (side-to-side wave vs finger flexing)
+- Use HH/SW units, not centimeters
+- Track motion across all frames
+- Explain WHY you chose this sign over similar ones
+- Only detect from vocabulary or return null`;
 
   try {
     // Prepare image parts for Gemini
@@ -407,13 +432,26 @@ Rules:
       msg.toLowerCase().includes('rate limit') ||
       msg.toLowerCase().includes('resource has been exhausted');
     
-    if (isQuotaError && API_KEYS.length > 1) {
-      console.log('⚠️ Quota hit on key #' + (currentKeyIndex + 1) + ', rotating to next key...');
-      rotateToNextKey();
-      
-      // ✅ Retry with next key (recursive call)
-      return analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary, sessionKey);
+    if (isQuotaError) {
+      // 🔥 If this is the FREE TIER per-project-per-day quota, rotating keys won't help.
+      const isDailyProjectQuota =
+        msg.includes("generate_content_free_tier_requests") ||
+        msg.includes("GenerateRequestsPerDayPerProjectPerModel-FreeTier");
+
+      if (isDailyProjectQuota) {
+        const err = new Error("GEMINI_DAILY_QUOTA_EXHAUSTED");
+        err.code = "GEMINI_DAILY_QUOTA_EXHAUSTED";
+        throw err;
+      }
+
+      // Otherwise it might be per-key / per-minute style throttling: rotation can help
+      if (API_KEYS.length > 1) {
+        console.log("⚠️ Rate/quota hit. Rotating key...");
+        rotateToNextKey();
+        return analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary, sessionKey);
+      }
     }
+
     
     throw error;
   }

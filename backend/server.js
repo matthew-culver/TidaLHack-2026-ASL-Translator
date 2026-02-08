@@ -7,6 +7,19 @@ const multer = require('multer');
 const crypto = require("crypto");
 const { analyzeASLSign } = require("./services/gemini");
 const { getVocabulary, saveTranslation } = require("./services/mongodb");
+// ✅ Vocabulary cache (prevents Mongo query every frame)
+let vocabCache = { at: 0, data: null };
+const VOCAB_TTL_MS = 60_000; // 60s; bump to 5min if vocab doesn't change
+let quotaExhausted = false;
+
+async function getVocabularyCached() {
+  const now = Date.now();
+  if (vocabCache.data && (now - vocabCache.at) < VOCAB_TTL_MS) return vocabCache.data;
+  const data = await getVocabulary();
+  vocabCache = { at: now, data };
+  return data;
+}
+
 console.log('🔑 Loaded API Key:', process.env.GEMINI_API_KEY?.substring(0, 20) + '...');
 
 
@@ -33,7 +46,7 @@ app.post("/api/translate/frames", async (req, res) => {
     }
 
     const sessionId = `upload-${Date.now()}`;
-    const vocabulary = await getVocabulary();
+    const vocabulary = await getVocabularyCached();
 
     const currentFrame = frames[frames.length - 1];
     const prev = frames.slice(0, -1).slice(-2);
@@ -117,6 +130,8 @@ wss.on("connection", (ws) => {
   let previousFrames = []; // data URLs
   let conversationContext = [];
   let lastGood = null;
+  let latestBase64 = null;
+  let processing = false;
   // cooldown when Gemini rate-limits / quota hits
   let cooldownUntil = 0;
   const COOLDOWN_MS = 20_000; // 20 seconds
@@ -136,27 +151,42 @@ wss.on("connection", (ws) => {
   const hashBase64 = (b64) =>
     crypto.createHash("sha1").update(b64).digest("hex");
 
-  ws.on("message", async (msg) => {
+  ws.on("message", (msg) => {
+  let data;
+  try {
+    data = JSON.parse(msg.toString());
+  } catch {
+    return;
+  }
+  if (data.type !== "frame") return;
+  console.log("📩 frame received", { bytes: msg.length });
+
+  const base64 = data.image || data.imageFrame;
+  if (!base64) return;
+
+  latestBase64 = base64;
+  if (!processing) processLoop();
+});
+
+async function processLoop() {
+  processing = true;
+
+  while (latestBase64) {
+    const base64 = latestBase64;
+    latestBase64 = null;
+
+    // ✅ Everything below is basically your old handler body,
+    // but operating on "base64" rather than parsing msg again.
+
     let locked = false;
-
     try {
-      const data = JSON.parse(msg.toString());
-      if (data.type !== "frame") return;
-
-      const base64 = data.image || data.imageFrame;
-      if (!base64) {
-        ws.send(JSON.stringify({ type: "error", message: "Missing base64 in image/imageFrame" }));
-        return;
-      }
-
-      const h = hashBase64(base64);
       const now = Date.now();
-      // If we are cooling down (Gemini quota/rate limit), don't call Gemini.
-      // Just reuse the last good result so the UI still looks alive.
+
+      // cooldown check
       if (now < cooldownUntil) {
         ws.send(JSON.stringify({
           type: "partial",
-          text: lastGood ? lastGood.text : "",
+          text: lastGood ? lastGood.text : "Throttling (Gemini limit hit)…",
           confidence: lastGood ? lastGood.confidence : 0,
           skipped: true,
           throttled: true,
@@ -164,26 +194,37 @@ wss.on("connection", (ws) => {
         }));
         return;
       }
-      // Dedupe
+
+
+      const h = hashBase64(base64);
+
+      // dedupe
       if (lastHash && lastHash === h && (now - lastHashAt) < DUP_TTL_MS) {
-        if (lastGood) {
-          ws.send(JSON.stringify({ type: "result", text: lastGood.text, confidence: lastGood.confidence, skipped: true }));
-        }
+        ws.send(JSON.stringify({
+          type: "partial",
+          text: lastGood ? lastGood.text : "Frame unchanged…",
+          confidence: lastGood ? lastGood.confidence : 0,
+          skipped: true
+        }));
         return;
       }
+
       lastHash = h;
       lastHashAt = now;
 
-      // Rate limit
+      // rate limit
       if ((now - lastGeminiAt) < MIN_CALL_MS) {
-        if (lastGood) {
-          ws.send(JSON.stringify({ type: "partial", text: lastGood.text, confidence: lastGood.confidence, skipped: true }));
-        }
+        ws.send(JSON.stringify({
+          type: "partial",
+          text: lastGood ? lastGood.text : "Waiting to query Gemini…",
+          confidence: lastGood ? lastGood.confidence : 0,
+          skipped: true
+        }));
         return;
       }
 
-      // Lock
-      if (inFlight) return;
+
+      if (inFlight) continue;
       inFlight = true;
       locked = true;
       lastGeminiAt = now;
@@ -191,8 +232,12 @@ wss.on("connection", (ws) => {
       const imageFrame = `data:image/jpeg;base64,${base64}`;
       const prev = previousFrames.slice(-MAX_PREV_FRAMES);
 
-      const vocabulary = await getVocabulary();
+      const vocabulary = await getVocabularyCached();
+      console.log("🤖 calling Gemini", { prevFrames: prev.length });
+
       const analysis = await analyzeASLSign(imageFrame, prev, conversationContext, vocabulary, sessionId);
+
+      console.log("✅ Gemini returned", { sign: analysis?.detectedSign, conf: analysis?.confidence });
 
       previousFrames.push(imageFrame);
       if (previousFrames.length > MAX_FRAME_BUFFER) previousFrames = previousFrames.slice(-MAX_FRAME_BUFFER);
@@ -202,59 +247,56 @@ wss.on("connection", (ws) => {
         if (conversationContext.length > 12) conversationContext = conversationContext.slice(-12);
       }
 
-      // Save should NOT be allowed to kill live demo
-      try {
-        await saveTranslation(sessionId, {
-          timestamp: new Date(),
-          detectedSign: analysis.detectedSign,
-          confidence: analysis.confidence,
-          reasoning: analysis.reasoning,
-          handShape: analysis.handShape,
-          handLocation: analysis.handLocation,
-          handOrientation: analysis.handOrientation,
-          motion: analysis.motion,
-          spatialAnalysis: analysis.spatialAnalysis,
-          temporalAnalysis: analysis.temporalAnalysis,
-          contextRelevance: analysis.contextRelevance,
-          correction: analysis.correction,
-          alternativeSigns: analysis.alternativeSigns,
-          differentiationNotes: analysis.differentiationNotes,
-          frameCount: prev.length + 1
-        });
-      } catch (e) {
-        console.warn("saveTranslation failed:", e.message);
-      }
+      // fire-and-forget save (from A2)
+      saveTranslation(sessionId, {
+        timestamp: new Date(),
+        detectedSign: analysis.detectedSign,
+        confidence: analysis.confidence,
+        reasoning: analysis.reasoning,
+        handShape: analysis.handShape,
+        handLocation: analysis.handLocation,
+        handOrientation: analysis.handOrientation,
+        motion: analysis.motion,
+        spatialAnalysis: analysis.spatialAnalysis,
+        temporalAnalysis: analysis.temporalAnalysis,
+        contextRelevance: analysis.contextRelevance,
+        correction: analysis.correction,
+        alternativeSigns: analysis.alternativeSigns,
+        differentiationNotes: analysis.differentiationNotes,
+        frameCount: prev.length + 1
+      }).catch((e) => console.warn("saveTranslation failed:", e.message));
 
       const label = typeof analysis?.detectedSign === "string" ? analysis.detectedSign : null;
       const conf = typeof analysis?.confidence === "number" ? analysis.confidence : 0;
 
-      // ✅ what the UI should show (and what you should feed to ElevenLabs)
-      const translationText = label || ""; // "" when no sign
-
+      const translationText = label || "";
       lastGood = { text: translationText, confidence: conf };
 
       ws.send(JSON.stringify({
         type: "result",
-        text: translationText,      // ✅ only the translation
+        text: translationText,
         confidence: conf,
-
-        // optional debug payload for judges/dev
         analysis: {
           detectedSign: analysis?.detectedSign ?? null,
           confidence: conf,
           candidates: analysis?.candidates,
           stageA: analysis?.stageA,
-          // keep reasoning if you want it accessible but not shown
           reasoning: analysis?.reasoning,
           correction: analysis?.correction
         }
       }));
-        } catch (e) {
-      console.error("WS handler error:", e);
-
+    } catch (e) {
       const msg = String(e?.message || e);
+      // Daily quota exhausted: stop trying for this WS session
+      if (msg.includes("GEMINI_DAILY_QUOTA_EXHAUSTED")) {
+        quotaExhausted = true;
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "Gemini daily quota exhausted (free tier, per-project). Live translation paused."
+        }));
+        return;
+      }
 
-      // Detect rate limit / quota errors (common strings)
       const isRateLimit =
         msg.includes("429") ||
         msg.toLowerCase().includes("quota") ||
@@ -263,7 +305,6 @@ wss.on("connection", (ws) => {
 
       if (isRateLimit) {
         cooldownUntil = Date.now() + COOLDOWN_MS;
-
         ws.send(JSON.stringify({
           type: "partial",
           text: lastGood ? lastGood.text : "",
@@ -272,15 +313,17 @@ wss.on("connection", (ws) => {
           throttled: true,
           status: "throttling"
         }));
-
-        return;
+      } else {
+        ws.send(JSON.stringify({ type: "error", message: msg }));
       }
-      // Non-rate-limit errors: report normally
-      ws.send(JSON.stringify({ type: "error", message: msg }));
     } finally {
       if (locked) inFlight = false;
     }
-  });
+  }
+
+  processing = false;
+}
+
   ws.on("close", () => console.log("❌ WS client disconnected"));
 });
 
