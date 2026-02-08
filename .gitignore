@@ -1,3 +1,5 @@
 node_modules/
 .env
 out.mp3
+frontend/dist
+frontend/frontend-build.zip

@@ -118,7 +118,7 @@ const server = http.createServer(app);
 
 const wss = new WebSocket.Server({ server, path: "/ws" });
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws) => { //1: keeps only the newest frame instead of queue
   console.log("✅ WS client connected");
 
   const sessionId = `ws-${Date.now()}-${Math.random().toString(16).slice(2)}`;
