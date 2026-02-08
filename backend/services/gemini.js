@@ -8,6 +8,8 @@ const API_KEYS = [
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
   process.env.GEMINI_API_KEY_5,
+  process.env.GEMINI_API_KEY_6,
+  process.env.GEMINI_API_KEY_7,
 ].filter(Boolean); // Remove undefined keys
 
 let currentKeyIndex = 0;
