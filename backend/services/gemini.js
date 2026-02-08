@@ -11,6 +11,96 @@ function stripCodeFences(text) {
     .trim();
 }
 
+// Extract the first JSON object from a string using bracket balancing.
+// Works even if the model includes extra text before/after.
+function extractFirstJSONObject(text) {
+  const s = stripCodeFences(text);
+
+  const start = s.indexOf("{");
+  if (start === -1) throw new Error("No JSON object start '{' found in model response.");
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") depth++;
+    if (ch === "}") depth--;
+
+    if (depth === 0) {
+      return s.slice(start, i + 1);
+    }
+  }
+
+  throw new Error("Unterminated JSON object in model response.");
+}
+
+function normStr(x) {
+  return String(x || "").toLowerCase();
+}
+
+function scoreSignWithFeatures(sign, features) {
+  const hay = normStr(
+    `${sign.signName} ${sign.description} ${sign.handShape} ${sign.location} ${sign.motion} ${sign.orientation} ` +
+    `${(sign.similarSigns || []).join(" ")} ${sign.differenceFromSimilar || ""} ${(sign.commonMistakes || []).join(" ")}`
+  );
+
+  let score = 0;
+
+  // Candidate labels are strongest hints
+  for (const lab of (features.candidateLabels || [])) {
+    if (normStr(sign.signName) === normStr(lab)) score += 6;
+    else if (hay.includes(normStr(lab))) score += 2;
+  }
+
+  // Keywords
+  for (const k of (features.handShapeKeywords || [])) {
+    if (hay.includes(normStr(k))) score += 3;
+  }
+  for (const k of (features.locationKeywords || [])) {
+    if (hay.includes(normStr(k))) score += 2;
+  }
+  for (const k of (features.motionKeywords || [])) {
+    if (hay.includes(normStr(k))) score += 2;
+  }
+
+  return score;
+}
+
+function shortlistVocabulary(vocabulary, features, limit = 7) {
+  const ranked = (vocabulary || [])
+    .map(sign => ({ sign, score: scoreSignWithFeatures(sign, features) }))
+    .sort((a, b) => b.score - a.score);
+
+  // Prefer scored > 0
+  const positive = ranked.filter(r => r.score > 0).slice(0, limit).map(r => r.sign);
+
+  // Fallback if nothing matched (e.g., blurry frame)
+  if (positive.length > 0) return positive;
+
+  // fallback: just take first N to avoid empty vocabText
+  return ranked.slice(0, Math.min(limit, ranked.length)).map(r => r.sign);
+}
+
+
 /**
  * Stage A: Extract compact features from frames 
  * Returns small JSON used to shortlist candidates server-side.
@@ -62,10 +152,17 @@ Conversation context (previous detected signs): ${contextSigns || "(none)"}
   });
 
   const result = await model.generateContent([prompt, ...imageParts]);
-  const text = stripCodeFences(result.response.text());
+  const raw = result.response.text();
 
-  // Parse + sanity defaults
-  const features = JSON.parse(text);
+  let features;
+  try {
+    const jsonText = extractFirstJSONObject(raw);
+    features = JSON.parse(jsonText);
+  } catch (e) {
+    console.error("Stage A JSON parse failed. Raw model output:", raw);
+    throw e;
+  }
+
   return {
     handShapeKeywords: Array.isArray(features.handShapeKeywords) ? features.handShapeKeywords : [],
     locationKeywords: Array.isArray(features.locationKeywords) ? features.locationKeywords : [],
@@ -88,28 +185,28 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
     }
   });
   
-  // Build vocabulary reference string
-  const vocabText = vocabulary.map(sign => {
-    let text = `\n${sign.signName.toUpperCase()}:
-  Description: ${sign.description}
-  Hand shape: ${sign.handShape}
-  Location: ${sign.location}
-  Motion: ${sign.motion}
-  Orientation: ${sign.orientation}`;
+  // Build vocabulary reference string -- COMMENTED TEMPORARILY
+  // const vocabText = vocabulary.map(sign => {
+  //   let text = `\n${sign.signName.toUpperCase()}:
+  // Description: ${sign.description}
+  // Hand shape: ${sign.handShape}
+  // Location: ${sign.location}
+  // Motion: ${sign.motion}
+  // Orientation: ${sign.orientation}`;
     
-    if (sign.similarSigns && sign.similarSigns.length > 0) {
-      text += `\n  ⚠️ Similar to: ${sign.similarSigns.join(', ')}`;
-      if (sign.differenceFromSimilar) {
-        text += `\n  🔑 KEY DIFFERENCE: ${sign.differenceFromSimilar}`;
-      }
-    }
+  //   if (sign.similarSigns && sign.similarSigns.length > 0) {
+  //     text += `\n  ⚠️ Similar to: ${sign.similarSigns.join(', ')}`;
+  //     if (sign.differenceFromSimilar) {
+  //       text += `\n  🔑 KEY DIFFERENCE: ${sign.differenceFromSimilar}`;
+  //     }
+  //   }
     
-    if (sign.commonMistakes && sign.commonMistakes.length > 0) {
-      text += `\n  ❌ Common mistakes: ${sign.commonMistakes.join('; ')}`;
-    }
+  //   if (sign.commonMistakes && sign.commonMistakes.length > 0) {
+  //     text += `\n  ❌ Common mistakes: ${sign.commonMistakes.join('; ')}`;
+  //   }
     
-    return text;
-  }).join('\n---');
+  //   return text;
+  // }).join('\n---');
   
   // Build conversation context string
   const contextText = conversationContext && conversationContext.length > 0
@@ -120,8 +217,49 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
   const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
   const features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
   console.log("Stage A features:", features);
-
+  const candidates = shortlistVocabulary(vocabulary, features, 7);
+    if (!candidates || candidates.length === 0) {
+    return {
+      detectedSign: null,
+      confidence: 0,
+      reasoning: "No candidate signs available (shortlist empty).",
+      handShape: "unknown",
+      handLocation: "unknown",
+      handOrientation: "unknown",
+      motion: "unknown",
+      spatialAnalysis: "Shortlist empty",
+      temporalAnalysis: "Shortlist empty",
+      contextRelevance: "Shortlist empty",
+      correction: null,
+      alternativeSigns: [],
+      differentiationNotes: "No candidates to compare"
+    };
+  }
+  console.log("📌 Candidate signs:", candidates.map(s => s.signName));
   
+  const vocabText = candidates.map(sign => {
+    let text = `\n${sign.signName.toUpperCase()}:
+    Description: ${sign.description}
+    Hand shape: ${sign.handShape}
+    Location: ${sign.location}
+    Motion: ${sign.motion}
+    Orientation: ${sign.orientation}`;
+
+    if (sign.similarSigns && sign.similarSigns.length > 0) {
+      text += `\n  ⚠️ Similar to: ${sign.similarSigns.join(', ')}`;
+      if (sign.differenceFromSimilar) {
+        text += `\n  🔑 KEY DIFFERENCE: ${sign.differenceFromSimilar}`;
+      }
+    }
+
+    if (sign.commonMistakes && sign.commonMistakes.length > 0) {
+      text += `\n  ❌ Common mistakes: ${sign.commonMistakes.join('; ')}`;
+    }
+
+    return text;
+  }).join('\n---');
+
+
   // THE PROMPT - This is where the magic happens
   const prompt = `You are an expert ASL (American Sign Language) interpreter with deep understanding of spatial reasoning, hand positioning, and temporal motion analysis. You are analyzing live video frames from a webcam to detect and interpret ASL signs in real-time.
 
@@ -142,6 +280,8 @@ Analyze the sequence of video frames showing someone signing in ASL. You will re
 # VOCABULARY YOU CAN RECOGNIZE
 Only detect signs from this list:
 ${vocabText}
+Allowed labels: ${candidates.map(s => s.signName).join(", ")}
+This is a SHORTLIST. You MUST choose detectedSign ONLY from this shortlist, or null if unsure.
 
 # CONVERSATION CONTEXT
 Previous signs detected in this conversation:
@@ -288,16 +428,15 @@ Remember: Show the judges your spatial reasoning, temporal understanding, and co
     console.log('🤖 Gemini raw response:', text.substring(0, 200) + '...');
     
     // Clean up response - remove markdown if present
-    let jsonText = text.trim();
-    
-    // Remove code blocks
-    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    
-    // Remove any leading/trailing whitespace
-    jsonText = jsonText.trim();
-    
-    // Parse JSON
-    const analysis = JSON.parse(jsonText);
+    let analysis;
+    try {
+      const jsonText = extractFirstJSONObject(text);
+      analysis = JSON.parse(jsonText);
+    } catch (e) {
+      console.error("❌ Stage C JSON parse failed. Raw model output:", text);
+      throw e;
+    }
+
     
     // Validate required fields
     const requiredFields = ['detectedSign', 'confidence', 'reasoning'];
