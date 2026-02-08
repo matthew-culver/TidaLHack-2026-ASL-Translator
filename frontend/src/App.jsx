@@ -136,15 +136,20 @@ function HomeScreen({ onStart }) {
     window.setTimeout(() => onStart(), 620);
   };
 
-  const onKeyStart = (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      begin();
-    }
-  };
+  // ✅ Press Enter / Space anywhere on the home screen to start
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (starting) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        begin();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [starting]);
 
   return (
-    // ✅ fixed + no scroll on the home screen itself
     <div className="fixed inset-0 overflow-hidden w-full flex items-center justify-center p-6">
       <motion.div
         className="relative"
@@ -158,7 +163,7 @@ function HomeScreen({ onStart }) {
           initial={false}
           animate={
             starting
-              ? { scale: 1.18, opacity: 0, rotateZ: -1.2, filter: "blur(10px)" }
+              ? { scale: 1.12, opacity: 0, rotateZ: -1.2, filter: "blur(10px)" }
               : { scale: 1, opacity: 1, rotateZ: 0, filter: "blur(0px)" }
           }
           transition={starting ? { duration: 0.52, ease: "easeInOut" } : { duration: 0.22 }}
@@ -182,32 +187,16 @@ function HomeScreen({ onStart }) {
             }}
           />
 
-          {/* ✅ sign.png under robot, above LogoU, centered */}
-          <motion.img
-            src={signImg}
-            alt=""
-            draggable={false}
-            className="pointer-events-none absolute left-1/2 top-25/32 -translate-x-1/2 z-10 w-[min(50vw,300px)] h-auto"
-            style={{
-              transform: "translate(-50%, calc(-50% + 260px))",
-              filter:"drop-shadow(0 140px 140px rgba(0,0,0,1.40))",
-
-            }}
-            initial={false}
-            animate={starting ? { opacity: 0.9, scale: 1.02 } : { opacity: 1, scale: 1 }}
-            transition={{ duration: 0.22, ease: "easeInOut" }}
-          />
-
-          {/* ✅ Base robot (raised slightly) */}
+          {/* Robot (raised) */}
           <img
             src={robotBlue}
             alt="Robot"
             draggable={false}
-            className="relative z-20 w-[min(92vw,720px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
-            style={{ transform: "translateY(-50px)" }} // ✅ raise robot
+            className="relative z-20 w-[min(95vw,750px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
+            style={{ transform: "translateY(-40px) translateX(-2.5px)" }}
           />
 
-          {/* Green-eyes swap ONLY (no additional overlay layers) */}
+          {/* Green-eyes swap ONLY */}
           <motion.img
             src={robotGreen}
             alt=""
@@ -216,61 +205,78 @@ function HomeScreen({ onStart }) {
             initial={{ opacity: 0 }}
             animate={starting ? { opacity: 1 } : { opacity: 0 }}
             transition={{ duration: 0.22, ease: "easeInOut" }}
-            style={{ transform: "translateY(-50px)" }} // match robot lift
+            style={{ transform: "translateY(-40px)" }}
           />
 
-          {/* Chest "Start" hitbox + glowing text (no hover background box) */}
+          {/* ✅ SIGN: small, contained on robot chest */}
           <div
-            className="absolute left-1/2 -translate-x-1/2 z-40"
-            style={{ top: "38%", left: "73%", width: "44%", height: "16%", transform: "translate(-50%, -50px)" }}
+            className="pointer-events-none absolute left-1/2 -translate-x-1/2 z-40"
+            style={{
+              top: "41%",
+              left: "56.5%",
+              width: "13%",
+              height: "14%",
+              transform: "translate(-50%, -50px)",
+            }}
           >
+            <img
+              src={signImg}
+              alt=""
+              draggable={false}
+              className="w-full h-full object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 2px rgba(0,0,0,0.9)) " +
+                  "drop-shadow(0 0 10px rgba(0,0,0,0.55)) " +
+                  "drop-shadow(0 18px 55px rgba(0,0,0,0.55))",
+                opacity: 0.98,
+              }}
+            />
+          </div>
+
+          {/* ✅ START: big, bottom-centered, clickable */}
+          <div className="absolute left-1/2 -translate-x-29/64 z-50" style={{ bottom: "-34px" }}>
             <button
               type="button"
               onClick={begin}
-              onKeyDown={onKeyStart}
               disabled={starting}
+              className="bg-transparent border-0 outline-none focus:outline-none"
+              style={{ WebkitTapHighlightColor: "transparent" }}
               aria-label="Start"
               title="Start"
-              className="w-full h-full bg-transparent border-0 outline-none focus:outline-none"
-              style={{
-                WebkitTapHighlightColor: "transparent",
-                background: "transparent",
-              }}
             >
-              <div className="w-full h-full flex items-center justify-center">
-                <motion.div
-                  initial={false}
-                  animate={
-                    starting
-                      ? { opacity: 0.25, scale: 0.98, letterSpacing: "0.40em" }
-                      : { opacity: 1, scale: 1, letterSpacing: "0.32em" }
-                  }
-                  transition={{ duration: 0.18 }}
-                  className="uppercase font-semibold text-[clamp(20px,3.6vw,20px)]"
-                  style={{
-                    color: "rgba(0, 0, 0, 0.88)",
-                    textShadow: `
-                      0 0 6px  rgba(56,189,248,1),
-                      0 0 18px rgba(56,189,248,0.95),
-                      0 0 42px rgba(56,189,248,0.85),
-                      0 0 80px rgba(56,189,248,0.55)
-                    `,
-                    filter: "drop-shadow(0 0 18px rgba(56,189,248,0.9))",
-                  }}
-                >
-                  Start
-                </motion.div>
-              </div>
+              <motion.div
+                initial={false}
+                animate={
+                  starting
+                    ? { opacity: 0.25, scale: 0.98, letterSpacing: "0.42em" }
+                    : { opacity: 1, scale: 1, letterSpacing: "0.34em" }
+                }
+                transition={{ duration: 0.18 }}
+                className="uppercase font-semibold text-[clamp(32px,6.2vw,64px)]"
+                style={{
+                  color: "white",
+                  textShadow: `
+                    0 0 10px rgba(56,189,248,1),
+                    0 0 26px rgba(56,189,248,0.95),
+                    0 0 60px rgba(56,189,248,0.75),
+                    0 0 110px rgba(56,189,248,0.55)
+                  `,
+                  filter: "drop-shadow(0 0 22px rgba(56,189,248,0.95))",
+                }}
+              >
+                START
+              </motion.div>
             </button>
-          </div>
-        </motion.div>
 
-        <motion.div
-          className="mt-5 text-center text-xs tracking-widest text-white/70"
-          initial={false}
-          animate={starting ? { opacity: 0 } : { opacity: 1 }}
-          transition={{ duration: 0.18 }}
-        >
+            <motion.div
+              className="mt-2 text-center text-xs tracking-widest text-white/70"
+              initial={false}
+              animate={starting ? { opacity: 0 } : { opacity: 1 }}
+              transition={{ duration: 0.18 }}
+            >
+            </motion.div>
+          </div>
         </motion.div>
       </motion.div>
     </div>
@@ -664,7 +670,7 @@ function AppScreen({ onHome, logoImg }) {
         return;
       }
 
-      const FPS = 3;
+      const FPS = 2;
       const intervalMs = Math.round(1000 / FPS);
 
       const loop = () => {
@@ -674,7 +680,7 @@ function AppScreen({ onHome, logoImg }) {
         const w = video.videoWidth || 640;
         const h = video.videoHeight || 480;
 
-        const targetW = 240;
+        const targetW = 300;
         const targetH = Math.max(1, Math.round((h / w) * targetW));
 
         canvas.width = targetW;
@@ -682,7 +688,7 @@ function AppScreen({ onHome, logoImg }) {
 
         ctx.drawImage(video, 0, 0, targetW, targetH);
 
-        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.45);
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.55);
         const base64 = jpegDataUrl.split(",")[1];
 
         const now = performance.now();
