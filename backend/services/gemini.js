@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const stageACache = new Map();
-const STAGEA_TTL_MS = 2000;
+const STAGEA_TTL_MS = 12000;
 
 // Removes ```json fences and trims
 function stripCodeFences(text) {
