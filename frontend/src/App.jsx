@@ -1,5 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 
 import bgImg from "./assets/bg.png";
 
@@ -18,14 +25,12 @@ async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
 }
 
 function PageFrame({ children }) {
-  // no bg-black here; background is handled by FixedBackground
   return <div className="min-h-screen w-full relative">{children}</div>;
 }
 
 function FixedBackground() {
   return (
     <>
-      {/* fallback to prevent any white flash if image is still loading */}
       <div className="fixed inset-0 -z-20 bg-black" />
       <div
         className="fixed inset-0 -z-10"
@@ -149,6 +154,142 @@ function HomeScreen({ onStart }) {
   );
 }
 
+/**
+ * ✅ Activity panel rendered in a portal
+ * ✅ Uses useLayoutEffect to compute position BEFORE paint
+ * ✅ Does not render until pos is ready → no snap / choppy animation
+ */
+function ActivityDropdown({
+  open,
+  anchorRef,
+  onClose,
+  smallBtn,
+  uiStats,
+  isLiveTranslating,
+  events,
+}) {
+  const [pos, setPos] = useState(null);
+
+  const computePos = () => {
+    const el = anchorRef.current;
+    if (!el) return null;
+
+    const r = el.getBoundingClientRect();
+    const width = window.innerWidth < 640 ? 340 : 380;
+
+    // right-aligned to the button, clamped to viewport
+    const left = Math.min(
+      window.innerWidth - width - 12,
+      Math.max(12, r.right - width)
+    );
+
+    // below button, clamped to viewport
+    const top = Math.min(window.innerHeight - 12, r.bottom + 10);
+
+    return { top, left, width };
+  };
+
+  // Compute position synchronously before paint whenever opening
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    const p = computePos();
+    if (p) setPos(p);
+  }, [open]);
+
+  // Keep it positioned if scrolling/resizing while open
+  useEffect(() => {
+    if (!open) return;
+
+    const update = () => {
+      const p = computePos();
+      if (p) setPos(p);
+    };
+
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+
+    const onOutside = (e) => {
+      const btn = anchorRef.current;
+      if (btn && btn.contains(e.target)) return;
+      onClose();
+    };
+    window.addEventListener("pointerdown", onOutside);
+
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onOutside);
+    };
+  }, [open, onClose, anchorRef]);
+
+  if (!open) return null;
+  if (!pos) return null; // ✅ don't animate from wrong coordinates
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="activity"
+        className="fixed z-[99999]"
+        style={{ top: pos.top, left: pos.left, width: pos.width }}
+        initial={{ opacity: 0, y: 8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.96 }}
+        transition={{ duration: 0.16 }}
+      >
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-slate-900/70">Activity</div>
+            <button type="button" onClick={onClose} className={smallBtn}>
+              Close
+            </button>
+          </div>
+
+          <div className="mt-3 rounded-2xl bg-white/10 p-3">
+            <div className="flex items-center justify-between text-xs text-slate-900/70">
+              <div>Frames sent</div>
+              <div className="text-slate-900 font-semibold">{uiStats.frames}</div>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+              <div>Estimated FPS</div>
+              <div className="text-slate-900 font-semibold">{uiStats.fps || 0}</div>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+              <div>Status</div>
+              <div className="text-slate-900 font-semibold">
+                {isLiveTranslating ? "LIVE" : "Idle"}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-1">
+            {events.length === 0 ? (
+              <div className="text-slate-900/60 text-sm">No events yet.</div>
+            ) : (
+              events.map((e, idx) => (
+                <div key={idx} className="flex items-start justify-between gap-3 text-sm">
+                  <div className="text-slate-900">{e.label}</div>
+                  <div className="text-slate-900/50 text-xs whitespace-nowrap">{e.ts}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  );
+}
+
 function AppScreen({ onHome, logoImg }) {
   const [videoSrc, setVideoSrc] = useState("");
   const [mode, setMode] = useState("idle"); // idle | camera
@@ -169,6 +310,7 @@ function AppScreen({ onHome, logoImg }) {
 
   // Activity popup
   const [showActivity, setShowActivity] = useState(false);
+  const activityBtnRef = useRef(null);
 
   // WS + live translation state
   const [isLiveTranslating, setIsLiveTranslating] = useState(false);
@@ -270,23 +412,24 @@ function AppScreen({ onHome, logoImg }) {
   };
 
   const stopLiveTranslation = () => {
-  isLiveRef.current = false;
-  setIsLiveTranslating(false);
+    isLiveRef.current = false;
+    setIsLiveTranslating(false);
 
-  if (liveLoopRef.current) {
-    clearTimeout(liveLoopRef.current);
-    liveLoopRef.current = null;
-  }
-  if (wsRef.current) {
-    try { wsRef.current.close(); } catch {}
-    wsRef.current = null;
-  }
+    if (liveLoopRef.current) {
+      clearTimeout(liveLoopRef.current);
+      liveLoopRef.current = null;
+    }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
 
-  setOutputText("Live translation stopped.");
-  pushEvent("Live translation stopped");
-  showToast("Live translation stopped");
-};
-
+    setOutputText("Live translation stopped.");
+    pushEvent("Live translation stopped");
+    showToast("Live translation stopped");
+  };
 
   const disableCamera = () => {
     if (isLiveTranslating) stopLiveTranslation();
@@ -340,205 +483,188 @@ function AppScreen({ onHome, logoImg }) {
   };
 
   const startLiveTranslation = () => {
-  if (!livePreviewRef.current || !canvasRef.current) {
-    setOutputText("Enable camera first.");
-    return;
-  }
-  if (!cameraEnabled) {
-    setOutputText("Enable camera first.");
-    return;
-  }
-  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-    // already running
-    return;
-  }
-
-  // UI feedback immediately (so it never feels like a dead click)
-  setOutputText("Connecting to live translation…");
-  pushEvent("Connecting to live translation…");
-  showToast("Connecting…");
-
-  statsRef.current.framesSent = 0;
-  statsRef.current.fpsEMA = 0;
-  statsRef.current.lastSentAt = 0;
-  statsRef.current.lastPartialAt = 0;
-
-  // ensure any old loop/socket is cleaned up
-  if (liveLoopRef.current) {
-    clearTimeout(liveLoopRef.current);
-    liveLoopRef.current = null;
-  }
-  if (wsRef.current) {
-    try { wsRef.current.close(); } catch {}
-    wsRef.current = null;
-  }
-
-  const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
-  const proto = location.protocol === "https:" ? "wss" : "ws";
-
-  // If running on Vite dev server (5173), connect WS to backend (3001).
-  const wsHost =
-    location.hostname === "localhost" && location.port === "5173"
-      ? `${location.hostname}:3001`
-      : location.host;
-
-  const ws = new WebSocket(`${proto}://${wsHost}/ws`);
-
-  wsRef.current = ws;
-
-  // If it never connects, surface that to the UI
-  const connectTimeout = setTimeout(() => {
-    if (wsRef.current === ws && ws.readyState !== WebSocket.OPEN) {
-      setOutputText("Live translation failed to connect (timeout). Check WS route (/ws) and server logs.");
-      pushEvent("WS connect timeout ❌");
-      showToast("WS timeout");
-      try { ws.close(); } catch {}
-    }
-  }, 4000);
-
-  ws.onopen = async () => {
-    clearTimeout(connectTimeout);
-
-    isLiveRef.current = true;
-    setIsLiveTranslating(true);
-    setOutputText("Live translation started…");
-    pushEvent("Live translation started");
-    showToast("Live started");
-
-    const video = livePreviewRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-    // Wait until the video has dimensions (prevents 0x0 streams on some browsers)
-    const waitForVideoReady = async () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) return true;
-      // try a few frames
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 50));
-        if (video.videoWidth > 0 && video.videoHeight > 0) return true;
-      }
-      return false;
-    };
-
-    const ready = await waitForVideoReady();
-    if (!ready) {
-      setOutputText("Camera stream not ready yet (no video dimensions). Try again after a second.");
-      pushEvent("Video not ready ❌");
-      showToast("Video not ready");
-      stopLiveTranslation();
+    if (!livePreviewRef.current || !canvasRef.current) {
+      setOutputText("Enable camera first.");
       return;
     }
-
-    const FPS = 10;
-    const intervalMs = Math.round(1000 / FPS);
-
-    const loop = () => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-      if (!isLiveRef.current) return;
-
-      const w = video.videoWidth || 640;
-      const h = video.videoHeight || 480;
-
-      const targetW = 320;
-      const targetH = Math.max(1, Math.round((h / w) * targetW));
-
-      canvas.width = targetW;
-      canvas.height = targetH;
-
-      ctx.drawImage(video, 0, 0, targetW, targetH);
-
-      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.6);
-      const base64 = jpegDataUrl.split(",")[1];
-
-      const now = performance.now();
-      const s = statsRef.current;
-      if (s.lastSentAt) {
-        const instFps = 1000 / Math.max(1, now - s.lastSentAt);
-        s.fpsEMA = s.fpsEMA ? s.fpsEMA * 0.8 + instFps * 0.2 : instFps;
-      }
-      s.lastSentAt = now;
-      s.framesSent += 1;
-
-      // ✅ Send BOTH names to match either backend expectation
-      const payload = {
-        type: "frame",
-        imageFrame: base64,
-        image: base64,
-      };
-
-      try {
-        wsRef.current.send(JSON.stringify(payload));
-      } catch (e) {
-        console.error("WS send failed", e);
-        setOutputText("Live translation send failed. Connection may have dropped.");
-        pushEvent("WS send failed ❌");
-        showToast("Send failed");
-        stopLiveTranslation();
-        return;
-      }
-
-      liveLoopRef.current = setTimeout(loop, intervalMs);
-    };
-
-    loop();
-  };
-
-  ws.onmessage = (evt) => {
-    // Surface raw messages if parsing fails (helps debugging)
-    let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      console.warn("WS non-JSON message:", evt.data);
-      setOutputText(String(evt.data));
+    if (!cameraEnabled) {
+      setOutputText("Enable camera first.");
       return;
     }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
 
-    if (msg.type === "partial" || msg.type === "result") {
-      setOutputText(msg.text ?? "");
-      if (typeof msg.confidence === "number") setConfidence(msg.confidence);
-      statsRef.current.lastPartialAt = performance.now();
-    } else if (msg.type === "error") {
-      setOutputText(`Live error: ${msg.message || "Unknown error"}`);
-      pushEvent("Backend error ❌");
-      showToast("Backend error");
-    } else {
-      // fall back: show something so it never looks dead
-      if (msg.text) setOutputText(msg.text);
-    }
-  };
+    setOutputText("Connecting to live translation…");
+    pushEvent("Connecting to live translation…");
+    showToast("Connecting…");
 
-  ws.onerror = (e) => {
-    clearTimeout(connectTimeout);
-    console.error("WS error", e);
-    setOutputText("Live translation connection error. Check WS route (/ws) and server logs.");
-    pushEvent("WS error ❌");
-    showToast("WS error");
-  };
-
-  ws.onclose = (e) => {
-    clearTimeout(connectTimeout);
-    console.log("WS closed", e.code, e.reason);
-
-    // ✅ SHOW THIS IN UI so it’s not “silent”
-    if (isLiveRef.current) {
-      setOutputText(`Live translation disconnected (code ${e.code}${e.reason ? `: ${e.reason}` : ""}).`);
-      pushEvent("WS closed ❌");
-      showToast("Disconnected");
-    }
-
-    isLiveRef.current = false;
-    setIsLiveTranslating(false);
+    statsRef.current.framesSent = 0;
+    statsRef.current.fpsEMA = 0;
+    statsRef.current.lastSentAt = 0;
+    statsRef.current.lastPartialAt = 0;
 
     if (liveLoopRef.current) {
       clearTimeout(liveLoopRef.current);
       liveLoopRef.current = null;
     }
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
 
-    if (wsRef.current === ws) wsRef.current = null;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const wsHost =
+      location.hostname === "localhost" && location.port === "5173"
+        ? `${location.hostname}:3001`
+        : location.host;
+
+    const ws = new WebSocket(`${proto}://${wsHost}/ws`);
+    wsRef.current = ws;
+
+    const connectTimeout = setTimeout(() => {
+      if (wsRef.current === ws && ws.readyState !== WebSocket.OPEN) {
+        setOutputText("Live translation failed to connect (timeout). Check WS route (/ws) and server logs.");
+        pushEvent("WS connect timeout ❌");
+        showToast("WS timeout");
+        try {
+          ws.close();
+        } catch {}
+      }
+    }, 4000);
+
+    ws.onopen = async () => {
+      clearTimeout(connectTimeout);
+
+      isLiveRef.current = true;
+      setIsLiveTranslating(true);
+      setOutputText("Live translation started…");
+      pushEvent("Live translation started");
+      showToast("Live started");
+
+      const video = livePreviewRef.current;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      const waitForVideoReady = async () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+        for (let i = 0; i < 20; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+        }
+        return false;
+      };
+
+      const ready = await waitForVideoReady();
+      if (!ready) {
+        setOutputText("Camera stream not ready yet (no video dimensions). Try again after a second.");
+        pushEvent("Video not ready ❌");
+        showToast("Video not ready");
+        stopLiveTranslation();
+        return;
+      }
+
+      const FPS = 10;
+      const intervalMs = Math.round(1000 / FPS);
+
+      const loop = () => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        if (!isLiveRef.current) return;
+
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 480;
+
+        const targetW = 320;
+        const targetH = Math.max(1, Math.round((h / w) * targetW));
+
+        canvas.width = targetW;
+        canvas.height = targetH;
+
+        ctx.drawImage(video, 0, 0, targetW, targetH);
+
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.6);
+        const base64 = jpegDataUrl.split(",")[1];
+
+        const now = performance.now();
+        const s = statsRef.current;
+        if (s.lastSentAt) {
+          const instFps = 1000 / Math.max(1, now - s.lastSentAt);
+          s.fpsEMA = s.fpsEMA ? s.fpsEMA * 0.8 + instFps * 0.2 : instFps;
+        }
+        s.lastSentAt = now;
+        s.framesSent += 1;
+
+        const payload = { type: "frame", imageFrame: base64, image: base64 };
+
+        try {
+          wsRef.current.send(JSON.stringify(payload));
+        } catch (e) {
+          console.error("WS send failed", e);
+          setOutputText("Live translation send failed. Connection may have dropped.");
+          pushEvent("WS send failed ❌");
+          showToast("Send failed");
+          stopLiveTranslation();
+          return;
+        }
+
+        liveLoopRef.current = setTimeout(loop, intervalMs);
+      };
+
+      loop();
+    };
+
+    ws.onmessage = (evt) => {
+      let msg;
+      try {
+        msg = JSON.parse(evt.data);
+      } catch {
+        console.warn("WS non-JSON message:", evt.data);
+        setOutputText(String(evt.data));
+        return;
+      }
+
+      if (msg.type === "partial" || msg.type === "result") {
+        setOutputText(msg.text ?? "");
+        if (typeof msg.confidence === "number") setConfidence(msg.confidence);
+        statsRef.current.lastPartialAt = performance.now();
+      } else if (msg.type === "error") {
+        setOutputText(`Live error: ${msg.message || "Unknown error"}`);
+        pushEvent("Backend error ❌");
+        showToast("Backend error");
+      } else {
+        if (msg.text) setOutputText(msg.text);
+      }
+    };
+
+    ws.onerror = (e) => {
+      clearTimeout(connectTimeout);
+      console.error("WS error", e);
+      setOutputText("Live translation connection error. Check WS route (/ws) and server logs.");
+      pushEvent("WS error ❌");
+      showToast("WS error");
+    };
+
+    ws.onclose = (e) => {
+      clearTimeout(connectTimeout);
+      console.log("WS closed", e.code, e.reason);
+
+      if (isLiveRef.current) {
+        setOutputText(`Live translation disconnected (code ${e.code}${e.reason ? `: ${e.reason}` : ""}).`);
+        pushEvent("WS closed ❌");
+        showToast("Disconnected");
+      }
+
+      isLiveRef.current = false;
+      setIsLiveTranslating(false);
+
+      if (liveLoopRef.current) {
+        clearTimeout(liveLoopRef.current);
+        liveLoopRef.current = null;
+      }
+
+      if (wsRef.current === ws) wsRef.current = null;
+    };
   };
-};
-
 
   const clear = () => {
     if (videoSrc) URL.revokeObjectURL(videoSrc);
@@ -580,7 +706,6 @@ function AppScreen({ onHome, logoImg }) {
     onHome();
   };
 
-  // ring gauge math
   const r = 34;
   const c = 2 * Math.PI * r;
   const dash = (confidencePct / 100) * c;
@@ -605,6 +730,16 @@ function AppScreen({ onHome, logoImg }) {
       <canvas ref={canvasRef} className="hidden" />
       <Toast show={toast.show} text={toast.text} />
 
+      <ActivityDropdown
+        open={showActivity}
+        anchorRef={activityBtnRef}
+        onClose={() => setShowActivity(false)}
+        smallBtn={smallBtn}
+        uiStats={uiStats}
+        isLiveTranslating={isLiveTranslating}
+        events={events}
+      />
+
       <motion.div
         className="relative z-10 h-[calc(100vh-1.5rem)] sm:h-[calc(100vh-2rem)] overflow-hidden rounded-[44px] p-3 sm:p-4 text-slate-900"
         variants={stagger}
@@ -624,6 +759,7 @@ function AppScreen({ onHome, logoImg }) {
 
           <div className="relative flex items-center gap-3">
             <button
+              ref={activityBtnRef}
               type="button"
               onClick={() => setShowActivity((v) => !v)}
               className={iconBtn}
@@ -632,55 +768,6 @@ function AppScreen({ onHome, logoImg }) {
             >
               <span className="text-slate-900/80 text-sm font-medium">Activity</span>
             </button>
-
-            <AnimatePresence>
-              {showActivity && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                  transition={{ duration: 0.16 }}
-                  className="absolute right-0 top-12 w-[340px] sm:w-[380px] z-50"
-                >
-                  <Card className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-slate-900/70">Activity</div>
-                      <button type="button" onClick={() => setShowActivity(false)} className={smallBtn}>
-                        Close
-                      </button>
-                    </div>
-
-                    <div className="mt-3 rounded-2xl bg-white/10 p-3">
-                      <div className="flex items-center justify-between text-xs text-slate-900/70">
-                        <div>Frames sent</div>
-                        <div className="text-slate-900 font-semibold">{uiStats.frames}</div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
-                        <div>Estimated FPS</div>
-                        <div className="text-slate-900 font-semibold">{uiStats.fps || 0}</div>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
-                        <div>Status</div>
-                        <div className="text-slate-900 font-semibold">{isLiveTranslating ? "LIVE" : "Idle"}</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-1">
-                      {events.length === 0 ? (
-                        <div className="text-slate-900/60 text-sm">No events yet.</div>
-                      ) : (
-                        events.map((e, idx) => (
-                          <div key={idx} className="flex items-start justify-between gap-3 text-sm">
-                            <div className="text-slate-900">{e.label}</div>
-                            <div className="text-slate-900/50 text-xs whitespace-nowrap">{e.ts}</div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </Card>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
             <button type="button" onClick={handleHome} className={iconBtn} title="Home" aria-label="Home">
               {logoImg ? (
@@ -702,7 +789,6 @@ function AppScreen({ onHome, logoImg }) {
                   className={"relative flex-none " + innerPane}
                   style={{ height: "clamp(320px, 62vh, 520px)" }}
                 >
-
                   <div className="absolute top-3 left-3 z-10">
                     <div className="rounded-full border border-white/35 bg-white/20 backdrop-blur-xl px-3 py-1 text-xs">
                       {mode === "camera" ? (
@@ -776,19 +862,42 @@ function AppScreen({ onHome, logoImg }) {
 
                 <div className="pt-4 border-t border-white/20">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch">
-                    <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={toggleCamera} className={primaryBtn}>
-                      <div className="font-semibold text-slate-900 text-center">{cameraEnabled ? "Disable camera" : "Enable camera"}</div>
-                      <div className="text-xs text-slate-900/70 text-center mt-1">{cameraEnabled ? "Stop preview" : "Live preview"}</div>
+                    <motion.button
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      type="button"
+                      onClick={toggleCamera}
+                      className={primaryBtn}
+                    >
+                      <div className="font-semibold text-slate-900 text-center">
+                        {cameraEnabled ? "Disable camera" : "Enable camera"}
+                      </div>
+                      <div className="text-xs text-slate-900/70 text-center mt-1">
+                        {cameraEnabled ? "Stop preview" : "Live preview"}
+                      </div>
                     </motion.button>
 
                     <div className="relative group h-full">
                       {isLiveTranslating ? (
-                        <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={stopLiveTranslation} className={primaryBtn}>
+                        <motion.button
+                          whileHover={{ y: -2 }}
+                          whileTap={{ scale: 0.98 }}
+                          type="button"
+                          onClick={stopLiveTranslation}
+                          className={primaryBtn}
+                        >
                           <div className="font-semibold text-slate-900 text-center">Stop live translation</div>
                           <div className="text-xs text-slate-900/70 text-center mt-1">End real-time processing</div>
                         </motion.button>
                       ) : (
-                        <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={startLiveTranslation} disabled={!cameraEnabled} className={primaryBtn}>
+                        <motion.button
+                          whileHover={{ y: -2 }}
+                          whileTap={{ scale: 0.98 }}
+                          type="button"
+                          onClick={startLiveTranslation}
+                          disabled={!cameraEnabled}
+                          className={primaryBtn}
+                        >
                           <div className="font-semibold text-slate-900 text-center">Start live translation</div>
                           <div className="text-xs text-slate-900/70 text-center mt-1">Real-time ASL → text</div>
                         </motion.button>
@@ -803,7 +912,13 @@ function AppScreen({ onHome, logoImg }) {
                       )}
                     </div>
 
-                    <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={() => fileInputRef.current?.click()} className={primaryBtn}>
+                    <motion.button
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className={primaryBtn}
+                    >
                       <div className="font-semibold text-slate-900 text-center">Upload video</div>
                       <div className="text-xs text-slate-900/70 text-center mt-1">Select from device</div>
                     </motion.button>
@@ -847,8 +962,12 @@ function AppScreen({ onHome, logoImg }) {
               <div className="flex items-center justify-between">
                 <div className="text-sm text-slate-900/70">Translation</div>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={copyText} className={smallBtn}>Copy text</button>
-                  <button type="button" onClick={clear} className={smallBtn}>Clear</button>
+                  <button type="button" onClick={copyText} className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition">
+                    Copy text
+                  </button>
+                  <button type="button" onClick={clear} className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition">
+                    Clear
+                  </button>
                 </div>
               </div>
 
@@ -874,7 +993,6 @@ export default function SignApp() {
 
   return (
     <PageFrame>
-      {/* Background is always present behind both screens */}
       <FixedBackground />
 
       <AnimatePresence mode="wait" initial={false}>
