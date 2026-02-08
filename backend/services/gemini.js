@@ -2,6 +2,79 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Removes ```json fences and trims
+function stripCodeFences(text) {
+  return (text || "")
+    .trim()
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+}
+
+/**
+ * Stage A: Extract compact features from frames 
+ * Returns small JSON used to shortlist candidates server-side.
+ */
+async function extractASLFeatures(model, currentFrame, previousFrames, contextSigns) {
+  const prompt = `
+You are analyzing ASL frames from a webcam.
+
+Return ONLY valid JSON (no markdown, no backticks).
+Do NOT guess centimeters. Use HH/SW or normalized coords if you mention magnitude.
+
+JSON schema:
+{
+  "handShapeKeywords": ["..."],
+  "locationKeywords": ["..."],
+  "motionKeywords": ["..."],
+  "candidateLabels": ["..."],
+  "confidence": 0.0
+}
+
+Rules:
+- handShapeKeywords: short phrases like "fist", "thumb extended", "flat hand", "index+middle extended"
+- locationKeywords: short phrases like "chin", "forehead", "center chest", "head level"
+- motionKeywords: short phrases like "circular", "side-to-side wave", "finger flex", "tap", "up-down nod"
+- candidateLabels: 3-5 likely labels (single words) based on what you see; if unsure, return []
+- confidence: 0..1 for your own certainty in these features
+
+Conversation context (previous detected signs): ${contextSigns || "(none)"}
+`;
+
+  const imageParts = [];
+
+  // Previous frames first
+  for (const f of (previousFrames || [])) {
+    imageParts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: f.replace(/^data:image\/\w+;base64,/, "")
+      }
+    });
+  }
+
+  // Current frame last
+  imageParts.push({
+    inlineData: {
+      mimeType: "image/jpeg",
+      data: currentFrame.replace(/^data:image\/\w+;base64,/, "")
+    }
+  });
+
+  const result = await model.generateContent([prompt, ...imageParts]);
+  const text = stripCodeFences(result.response.text());
+
+  // Parse + sanity defaults
+  const features = JSON.parse(text);
+  return {
+    handShapeKeywords: Array.isArray(features.handShapeKeywords) ? features.handShapeKeywords : [],
+    locationKeywords: Array.isArray(features.locationKeywords) ? features.locationKeywords : [],
+    motionKeywords: Array.isArray(features.motionKeywords) ? features.motionKeywords : [],
+    candidateLabels: Array.isArray(features.candidateLabels) ? features.candidateLabels : [],
+    confidence: typeof features.confidence === "number" ? features.confidence : 0
+  };
+}
+
 /**
  * Analyze ASL sign from video frames using Gemini's multimodal capabilities
  */
@@ -44,6 +117,10 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
         `${i + 1}. "${c.sign}" (${Math.round(c.confidence * 100)}% confidence)`
       ).join(' → ')
     : "This is the first sign in the conversation.";
+  const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
+  const features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
+  console.log("Stage A features:", features);
+
   
   // THE PROMPT - This is where the magic happens
   const prompt = `You are an expert ASL (American Sign Language) interpreter with deep understanding of spatial reasoning, hand positioning, and temporal motion analysis. You are analyzing live video frames from a webcam to detect and interpret ASL signs in real-time.
@@ -89,7 +166,7 @@ Do NOT invent centimeters. If scale is unknown, state measurements in HH/SW or n
 
 ## 2. TEMPORAL ANALYSIS (CRITICAL - This is why we need multiple frames)
 - Track motion patterns across frames
-  Example: "Frame 1: hand at chest. Frame 2: moved 3cm upward. Frame 3: reached chin. Motion complete."
+  Example: "Frame 1: hand at chest. Frame 2: moved ~0.10 HH upward. Frame 3: reached chin level. Motion complete."
 - Determine if sign is static or motion-based
 - Identify motion type: linear, circular, oscillating, tapping
 - Note if motion is complete or in-progress
@@ -103,13 +180,13 @@ Do NOT invent centimeters. If scale is unknown, state measurements in HH/SW or n
 
 ## 4. DIFFERENTIATION (CRITICAL - This proves accuracy)
 - When sign looks similar to others, EXPLICITLY explain differences
-  Example: "This is 'mother' not 'father' because: hand is at CHIN (15cm below forehead position). Vertical separation is clear - measured ~15cm lower."
+  Example: "This is 'mother' not 'father' because: hand is at CHIN (~0.25 HH below forehead). Vertical separation is clear - measured ~0.25 HH lower."
 - Reference the "Similar to" and "KEY DIFFERENCE" notes in vocabulary
 - Be specific about what you observe that distinguishes signs
 
 ## 5. TEACHING/CORRECTION (Shows multimodal understanding)
 - If sign is close but incorrect, provide specific correction
-  Example: "Hand shape correct, but positioned at neck instead of chin. Move hand UP 5cm to properly sign 'mother'."
+  Example: "Hand shape correct, but positioned at neck instead of chin. Move hand UP ~0.08 HH to properly sign 'mother'."
 - Reference common mistakes from vocabulary
 
 # YOUR RESPONSE FORMAT
@@ -119,20 +196,20 @@ You MUST respond with ONLY valid JSON (no markdown, no backticks, no explanation
 {
   "detectedSign": "sign name from vocabulary OR null if unsure",
   "confidence": 0.85,
-  "reasoning": "I observe [specific hand shape description], positioned at [exact 3D location with measurements], oriented [direction with angles]. The motion across frames shows [specific motion description]. This matches the '[SIGN]' sign because [list 3+ specific matching features]. I ruled out '[SIMILAR_SIGN]' because [specific observed difference with measurements].",
+  "reasoning": "I observe [specific hand shape], positioned at [body-relative location using HH/SW + normalized coords], oriented [qualitative direction]. The motion across frames shows [motion description using normalized or relative units]. This matches '[SIGN]' because [3+ matching features]. I ruled out '[SIMILAR_SIGN]' because [specific observed difference using HH/SW or normalized coords].",
   
   "handShape": "detailed description: finger positions, thumb position, palm shape",
-  "handLocation": "exact location: [body part] with measurements (e.g., '12cm from chin, 5cm forward')",
-  "handOrientation": "palm facing [direction with angle], fingers pointing [direction with angle]",
-  "motion": "static OR [type of motion]: direction, distance, speed, completion status",
+  "handLocation": "location using realistic units: include normalized coords (x,y in 0..1) and/or relative body units (HH=head-height, SW=shoulder-width). Example: 'chin level (~0.05 HH), handCenter(x=0.52,y=0.44), ~0.10 SW right of midline'",
+  "handOrientation": "orientation described qualitatively (or rough estimate only if obvious): e.g., 'palm facing camera', 'palm facing left', 'fingers pointing up-right'",
+  "motion": "static OR motion description: direction + magnitude using HH/SW or normalized coords, speed (fast/medium/slow), and completion status (complete/in-progress)",
   
-  "spatialAnalysis": "Detailed 3D positioning with measurements: Hand is positioned [distance] from [body part], at [angle] from [reference plane]. Palm orientation: [angle] from [reference]. For two-handed: hands are [distance] apart, [relationship description].",
+  "spatialAnalysis": "3D-ish positioning using realistic camera-derived measurements: include handCenter(x,y) normalized (0..1), relative landmark position in HH/SW, and qualitative depth cues if any (e.g., foreshortening). For two-handed signs include relative separation in SW or normalized units and whether hands are parallel/symmetric.",
   
   "temporalAnalysis": "Motion tracking across frames: Frame 1: [position]. Frame 2: [new position], moved [direction] by [distance]. Frame 3: [final position]. Motion pattern: [linear/circular/oscillating], [complete/incomplete]. Duration: [fast/medium/slow].",
   
-  "contextRelevance": "Based on previous signs '${conversationContext.map(c => c.sign).join(', ')}', this interpretation makes sense because [explain]. In ASL conversation flow, [explain pattern]. This suggests next sign might be [prediction].",
-  
-  "correction": null OR "Specific actionable feedback: '[WHAT'S WRONG]' - [SPECIFIC FIX with measurements]. Example: 'Hand is at neck level (observed) but should be at chin for this sign - move DOWN 5cm.'",
+  "contextRelevance": "Based on previous signs '${contextSigns}', this interpretation makes sense because [explain]. In ASL conversation flow, [explain pattern]. This suggests next sign might be [prediction].",
+
+  "correction": null OR "Specific actionable feedback: '[WHAT'S WRONG]' - [SPECIFIC FIX with measurements]. Example: 'Hand is at neck level (observed) but should be at chin for this sign - move DOWN ~0.08 HH.'",
   
   "alternativeSigns": [
     {
@@ -147,26 +224,28 @@ You MUST respond with ONLY valid JSON (no markdown, no backticks, no explanation
 
 # CRITICAL RULES
 
-1. ✅ **Use MEASUREMENTS** - "12cm from chin" not "near chin"
-2. ✅ **Show your work** - Explain WHY, don't just label
-3. ✅ **Consider motion** - Static pose might be incomplete motion sign
-4. ✅ **Use context** - Previous signs inform interpretation
-5. ✅ **Be honest** - Low confidence + alternatives > wrong guess
-6. ✅ **Teach** - Provide corrections to help user improve
-7. ✅ **Differentiate clearly** - Explicitly state what distinguishes similar signs
-8. ✅ **Only vocabulary** - Don't detect signs not in the list
-9. ✅ **NO MARKDOWN** - Pure JSON only, no \`\`\`json or any formatting
+1. Use REALISTIC measurements:
+   - normalized coords (0..1) and HH/SW units
+   - avoid centimeters unless the system is explicitly calibrated
+2. **Show your work** - Explain WHY, don't just label
+3. **Consider motion** - Static pose might be incomplete motion sign
+4. **Use context** - Previous signs inform interpretation
+5. **Be honest** - Low confidence + alternatives > wrong guess
+6. **Teach** - Provide corrections to help user improve
+7. **Differentiate clearly** - Explicitly state what distinguishes similar signs
+8. **Only vocabulary** - Don't detect signs not in the list
+9. **NO MARKDOWN** - Pure JSON only, no \`\`\`json or any formatting
 
 # EXAMPLES OF GOOD VS BAD REASONING
 
 ❌ BAD: "Looks like sorry."
-✅ GOOD: "Hand is in fist with thumb extended (ASL letter 'A'), positioned at center chest 10cm from body. Across 3 frames, hand moves in clockwise circular motion with ~8cm radius, completing 1.5 rotations. This matches 'sorry' sign because: (1) correct hand shape (fist+thumb, not flat hand), (2) correct location (over heart area), (3) circular motion present (not linear). I ruled out 'please' which also uses chest location, because 'please' requires FLAT hand, not fist - observed hand is clearly in fist configuration."
+✅ GOOD: "Hand is in fist with thumb extended (ASL letter 'A'), positioned at center chest ~0.15 SW in front of torso (inferred). Across 3 frames, hand moves in clockwise circular motion with ~0.08 SW circular radius, completing 1.5 rotations. This matches 'sorry' sign because: (1) correct hand shape (fist+thumb, not flat hand), (2) correct location (over heart area), (3) circular motion present (not linear). I ruled out 'please' which also uses chest location, because 'please' requires FLAT hand, not fist - observed hand is clearly in fist configuration."
 
 ❌ BAD: "It's mother."
-✅ GOOD: "Open palm with 5 fingers extended, thumb touching chin at midline, fingers pointing upward at 80° from horizontal. Position measured: hand contact point is at CHIN level (not forehead). This is 'mother' not 'father' because: vertical position is ~15cm BELOW where 'father' sign would be (forehead). The distinguishing feature is unambiguous - chin vs forehead placement creates clear vertical separation."
+✅ GOOD: "Open palm with 5 fingers extended, thumb touching chin at midline, fingers pointing mostly upward (slightly forward). Position measured: hand contact point is at CHIN level (not forehead). This is 'mother' not 'father' because: vertical position is ~0.25 HH lower where 'father' sign would be (forehead). The distinguishing feature is unambiguous - chin vs forehead placement creates clear vertical separation."
 
 ❌ BAD: "High confidence, it's 'hello'."
-✅ GOOD: "Open palm at head level, 20cm from right temple. Motion analysis: Frame 1-3 shows hand oscillating side-to-side with ~10cm amplitude, 2 complete cycles. Palm remains facing forward throughout. This is 'hello' not 'goodbye' because: motion is SIDE-TO-SIDE oscillation (goodbye would show FINGERS FLEXING IN/OUT). The motion pattern is the key differentiator."
+✅ GOOD: "Open palm at head level, handCenter near right temple, x≈0.70,y≈0.25 (~0.05-0.10 HH from temple region). Motion analysis: Frame 1-3 shows hand oscillating side-to-side with ~0.12 SW amplitude, 2 complete cycles. Palm remains facing forward throughout. This is 'hello' not 'goodbye' because: motion is SIDE-TO-SIDE oscillation (goodbye would show FINGERS FLEXING IN/OUT). The motion pattern is the key differentiator."
 
 # NOW ANALYZE
 
