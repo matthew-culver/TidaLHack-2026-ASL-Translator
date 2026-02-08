@@ -9,6 +9,7 @@ import robotGreen from "./assets/Robot_Green.png";
 import robotHeadBlue from "./assets/robot_head_blue.png";
 import appLogo from "./assets/Logo.png";
 import logoU from "./assets/Logo_U.png";
+import signImg from "./assets/sign.png"; // ✅ NEW
 
 // send video file/blob to backend
 async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
@@ -121,10 +122,10 @@ const stagger = {
 
 /**
  * HOME: Robot with chest "Start"
- * Fixes requested:
- * - Remove extra green overlay effects (only swap Robot_Blue -> Robot_Green)
- * - Remove hover background/rectangle change on the Start button (text only)
- * - Add Logo_U behind robot; large; fades out when Start is clicked
+ * Updates:
+ * - ✅ Raise robot slightly
+ * - ✅ Add sign.png under robot, above LogoU, centered
+ * - ✅ Home screen is fixed / unscrollable (also enforced in SignApp)
  */
 function HomeScreen({ onStart }) {
   const [starting, setStarting] = useState(false);
@@ -143,7 +144,8 @@ function HomeScreen({ onStart }) {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center p-6">
+    // ✅ fixed + no scroll on the home screen itself
+    <div className="fixed inset-0 overflow-hidden w-full flex items-center justify-center p-6">
       <motion.div
         className="relative"
         initial={{ opacity: 0, y: 18, scale: 0.98, filter: "blur(8px)" }}
@@ -166,12 +168,12 @@ function HomeScreen({ onStart }) {
             src={logoU}
             alt=""
             draggable={false}
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(110vw,980px)] h-auto"
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-18/32 w-[min(50vw,500px)] h-auto z-0"
             initial={false}
             animate={
               starting
-                ? { opacity: 0, scale: 1.12, filter: "blur(6px)" }
-                : { opacity: 0.26, scale: 1.0, filter: "blur(0px)" }
+                ? { opacity: 1, scale: 1.12, filter: "blur(6px)" }
+                : { opacity: 1, scale: 1.0, filter: "blur(0px)" }
             }
             transition={{ duration: 0.28, ease: "easeInOut" }}
             style={{
@@ -180,12 +182,29 @@ function HomeScreen({ onStart }) {
             }}
           />
 
-          {/* Base robot */}
+          {/* ✅ sign.png under robot, above LogoU, centered */}
+          <motion.img
+            src={signImg}
+            alt=""
+            draggable={false}
+            className="pointer-events-none absolute left-1/2 top-25/32 -translate-x-1/2 z-10 w-[min(50vw,300px)] h-auto"
+            style={{
+              transform: "translate(-50%, calc(-50% + 260px))",
+              filter:"drop-shadow(0 140px 140px rgba(0,0,0,1.40))",
+
+            }}
+            initial={false}
+            animate={starting ? { opacity: 0.9, scale: 1.02 } : { opacity: 1, scale: 1 }}
+            transition={{ duration: 0.22, ease: "easeInOut" }}
+          />
+
+          {/* ✅ Base robot (raised slightly) */}
           <img
             src={robotBlue}
             alt="Robot"
             draggable={false}
-            className="relative w-[min(92vw,720px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
+            className="relative z-20 w-[min(92vw,720px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
+            style={{ transform: "translateY(-50px)" }} // ✅ raise robot
           />
 
           {/* Green-eyes swap ONLY (no additional overlay layers) */}
@@ -193,16 +212,17 @@ function HomeScreen({ onStart }) {
             src={robotGreen}
             alt=""
             draggable={false}
-            className="pointer-events-none absolute inset-0 w-full h-full"
+            className="pointer-events-none absolute inset-0 z-30 w-full h-full"
             initial={{ opacity: 0 }}
             animate={starting ? { opacity: 1 } : { opacity: 0 }}
             transition={{ duration: 0.22, ease: "easeInOut" }}
+            style={{ transform: "translateY(-50px)" }} // match robot lift
           />
 
           {/* Chest "Start" hitbox + glowing text (no hover background box) */}
           <div
-            className="absolute left-1/2 -translate-x-1/2"
-            style={{ top: "38%", left: "52%", width: "44%", height: "16%" }}
+            className="absolute left-1/2 -translate-x-1/2 z-40"
+            style={{ top: "38%", left: "73%", width: "44%", height: "16%", transform: "translate(-50%, -50px)" }}
           >
             <button
               type="button"
@@ -226,7 +246,7 @@ function HomeScreen({ onStart }) {
                       : { opacity: 1, scale: 1, letterSpacing: "0.32em" }
                   }
                   transition={{ duration: 0.18 }}
-                  className="uppercase font-semibold text-[clamp(50px,3.6vw,50px)]"
+                  className="uppercase font-semibold text-[clamp(20px,3.6vw,20px)]"
                   style={{
                     color: "rgba(0, 0, 0, 0.88)",
                     textShadow: `
@@ -251,7 +271,6 @@ function HomeScreen({ onStart }) {
           animate={starting ? { opacity: 0 } : { opacity: 1 }}
           transition={{ duration: 0.18 }}
         >
-          Click the chest to begin
         </motion.div>
       </motion.div>
     </div>
@@ -808,7 +827,7 @@ function AppScreen({ onHome, logoImg }) {
 
   const innerPane = "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
   const translationPane =
-  "rounded-2xl border border-white/50 bg-white/45 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+    "rounded-2xl border border-white/50 bg-white/45 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
 
   return (
     <div className="relative min-h-screen w-full">
@@ -1117,6 +1136,15 @@ function AppScreen({ onHome, logoImg }) {
 
 export default function SignApp() {
   const [screen, setScreen] = useState("home");
+
+  // ✅ enforce no scroll while on home, restore otherwise
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = screen === "home" ? "hidden" : "auto";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [screen]);
 
   return (
     <PageFrame>
