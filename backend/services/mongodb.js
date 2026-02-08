@@ -4,6 +4,21 @@ const VOCAB_TTL_MS = 30_000; // 30 seconds
 
 const SignVocabulary = require('../models/SignVocabulary');
 const TranslationSession = require('../models/TranslationSession');
+async function saveJudgeTrail(sessionId, entry) {
+  try {
+    return await TranslationSession.updateOne(
+      { sessionId },
+      {
+        $push: { judgeTrail: entry },
+        $set: { lastActivity: new Date() }
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.error("Error saving judge trail:", error);
+    throw error;
+  }
+}
 
 /**
  * Get all signs from vocabulary
@@ -83,5 +98,6 @@ module.exports = {
   getVocabulary,
   saveTranslation,
   createSession,
-  getSession
+  getSession,
+  saveJudgeTrail
 };

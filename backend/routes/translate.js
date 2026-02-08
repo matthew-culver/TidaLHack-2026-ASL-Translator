@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const { analyzeASLSign } = require('../services/gemini');
-const { getVocabulary, saveTranslation, createSession, getSession } = require('../services/mongodb');
-const { v4: uuidv4 } = require('uuid');
-const shortlistCache = new Map();
-const SHORTLIST_TTL_MS = 2000; // 2 seconds
+const { getVocabulary, saveTranslation, createSession, getSession, saveJudgeTrail } = require('../services/mongodb');
 
+const { v4: uuidv4 } = require('uuid');
+const crypto = require("crypto");
+const lastFrameHashBySession = new Map();
+const LAST_HASH_TTL_MS = 10_000;
+const lastGoodTranslationBySession = new Map();
 
 /**
  * POST /api/translate
@@ -27,6 +29,47 @@ router.post('/', async (req, res) => {
         error: 'imageFrame is required'
       });
     }
+    // Basic dedupe: if same exact base64 arrives repeatedly, skip Gemini
+    const key = sessionId || "no-session";
+
+    // hash the base64 string (cheap enough)
+    const base64 = imageFrame.replace(/^data:image\/\w+;base64,/, "");
+    const h = crypto.createHash("sha1").update(base64).digest("hex");
+
+    const prev = lastFrameHashBySession.get(key);
+    const now = Date.now();
+
+    if (prev && prev.hash === h && (now - prev.at) < LAST_HASH_TTL_MS) {
+      const last = lastGoodTranslationBySession.get(key);
+      return res.json({
+        success: true,
+        translation: last || {
+          detectedSign: null,
+          confidence: 0,
+          reasoning: "Frame unchanged; skipped Gemini to save latency/cost.",
+          handShape: "unknown",
+          handLocation: "unknown",
+          handOrientation: "unknown",
+          motion: "static",
+          spatialAnalysis: "Skipped (duplicate frame)",
+          temporalAnalysis: "Skipped (duplicate frame)",
+          contextRelevance: "Skipped (duplicate frame)",
+          correction: null,
+          alternativeSigns: [],
+          differentiationNotes: "Skipped (duplicate frame)"
+        },
+        skipped: true,
+        timestamp: new Date().toISOString()
+      });
+    }
+    lastFrameHashBySession.set(key, { hash: h, at: now });
+    if (lastFrameHashBySession.size > 500) {
+      for (const [k, v] of lastFrameHashBySession) {
+        if ((now - v.at) > LAST_HASH_TTL_MS) lastFrameHashBySession.delete(k);
+      }
+    }
+
+
     
     console.log(`\n🔄 Translation request for session: ${sessionId}`);
     console.log(`📊 Context: ${conversationContext?.length || 0} previous signs`);
@@ -44,6 +87,7 @@ router.post('/', async (req, res) => {
       vocabulary,
       sessionId || "no-session"
     );
+    lastGoodTranslationBySession.set(key, analysis);
 
     
     // Save translation to database (if we have a session)
@@ -64,6 +108,14 @@ router.post('/', async (req, res) => {
         alternativeSigns: analysis.alternativeSigns,
         differentiationNotes: analysis.differentiationNotes,
         frameCount: (previousFrames?.length || 0) + 1
+      });
+      await saveJudgeTrail(sessionId, {
+        t: new Date().toISOString(),
+        sign: analysis.detectedSign,
+        conf: analysis.confidence,
+        why: (analysis.reasoning || "").slice(0, 140),
+        candidates: analysis.candidates || [],
+        skipped: false
       });
       console.log(`💾 Saved translation to session ${sessionId}`);
     }

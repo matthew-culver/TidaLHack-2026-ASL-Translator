@@ -216,7 +216,6 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
       ).join(' → ')
     : "This is the first sign in the conversation.";
   const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
-  const cacheKey = `${conversationContext?.sessionId || ""}`; // if you don't have sessionId here, see note below
   const key = sessionKey || "no-session";
   const now = Date.now();
 
@@ -228,6 +227,12 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
   } else {
     features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
     stageACache.set(key, { at: now, features });
+    // tiny cleanup: prevent unbounded growth
+    if (stageACache.size > 500) {
+      for (const [k, v] of stageACache) {
+        if ((now - v.at) > 10_000) stageACache.delete(k); // delete anything older than 10s
+      }
+    }
   }
 
   console.log("Stage A features:", features);
@@ -463,7 +468,9 @@ Remember: Show the judges your spatial reasoning, temporal understanding, and co
     }
     
     console.log(`✅ Detected: ${analysis.detectedSign} (${Math.round(analysis.confidence * 100)}%)`);
-    
+    analysis.candidates = candidates.map(s => s.signName);
+    analysis.stageA = features; // optional, but cool for judges
+
     return analysis;
     
   } catch (error) {
