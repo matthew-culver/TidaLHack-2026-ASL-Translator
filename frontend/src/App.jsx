@@ -541,7 +541,7 @@ function AppScreen({ onHome, logoImg }) {
 
     try {
       const stream =
-        streamRef.current ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
+        streamRef.current ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
       streamRef.current = stream;
 
       setMode("camera");
@@ -645,7 +645,7 @@ function AppScreen({ onHome, logoImg }) {
         return;
       }
 
-      const FPS = 10;
+      const FPS = 6;
       const intervalMs = Math.round(1000 / FPS);
 
       const loop = () => {
@@ -1102,7 +1102,7 @@ function AppScreen({ onHome, logoImg }) {
                   {outputText ? (
                     <div className="text-slate-900 leading-relaxed text-base whitespace-pre-wrap">{outputText}</div>
                   ) : (
-                    <div className="text-black-900/50 text-base">Translation output will appear here…</div>
+                    <div className="text-black/50 text-base">Translation output will appear here…</div>
                   )}
                 </div>
               </div>
