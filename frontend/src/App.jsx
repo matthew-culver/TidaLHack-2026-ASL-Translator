@@ -1,14 +1,14 @@
-import React, {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+// App.jsx
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 
 import bgImg from "./assets/bg.png";
+import robotBlue from "./assets/Robot_Blue.png";
+import robotGreen from "./assets/Robot_Green.png";
+import robotHeadBlue from "./assets/robot_head_blue.png";
+import appLogo from "./assets/Logo.png";
+import logoU from "./assets/Logo_U.png";
 
 // send video file/blob to backend
 async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
@@ -71,7 +71,7 @@ function Toast({ show, text }) {
           exit={{ opacity: 0, y: 16, scale: 0.98 }}
           transition={{ duration: 0.18 }}
         >
-          <div className="rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl px-4 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.30)] text-slate-900 text-sm">
+          <div className="rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl px-4 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.30)] text-slate-900 text-sm">
             {text}
           </div>
         </motion.div>
@@ -119,37 +119,141 @@ const stagger = {
   exit: { transition: { staggerChildren: 0.06, staggerDirection: -1 } },
 };
 
+/**
+ * HOME: Robot with chest "Start"
+ * Fixes requested:
+ * - Remove extra green overlay effects (only swap Robot_Blue -> Robot_Green)
+ * - Remove hover background/rectangle change on the Start button (text only)
+ * - Add Logo_U behind robot; large; fades out when Start is clicked
+ */
 function HomeScreen({ onStart }) {
+  const [starting, setStarting] = useState(false);
+
+  const begin = () => {
+    if (starting) return;
+    setStarting(true);
+    window.setTimeout(() => onStart(), 620);
+  };
+
+  const onKeyStart = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      begin();
+    }
+  };
+
   return (
     <div className="relative min-h-screen w-full flex items-center justify-center p-6">
-      <motion.button
-        type="button"
-        onClick={onStart}
-        initial={{ opacity: 0, scale: 0.9, y: 18, filter: "blur(8px)" }}
-        animate={{
-          opacity: 1,
-          scale: 1,
-          y: 0,
-          filter: "blur(0px)",
-          transition: { type: "spring", stiffness: 220, damping: 16, mass: 0.7 },
-        }}
-        exit={{ opacity: 0, scale: 0.92, y: 12, filter: "blur(8px)", transition: { duration: 0.18 } }}
-        whileHover={{ scale: 1.04 }}
-        whileTap={{ scale: 0.98 }}
-        className={
-          "rounded-3xl border border-white/35 bg-white/14 backdrop-blur-xl " +
-          "shadow-[0_24px_80px_rgba(0,0,0,0.35)] px-10 py-6"
-        }
-        aria-label="Start"
-        title="Start"
+      <motion.div
+        className="relative"
+        initial={{ opacity: 0, y: 18, scale: 0.98, filter: "blur(8px)" }}
+        animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+        exit={{ opacity: 0, transition: { duration: 0.18 } }}
+        transition={{ type: "spring", stiffness: 220, damping: 16, mass: 0.7 }}
       >
-        <div className="text-4xl sm:text-5xl tracking-[0.22em] uppercase font-semibold text-slate-900">
-          <span className="font-mono italic drop-shadow-[0_14px_28px_rgba(255,255,255,0.6)]">
-            Start
-          </span>
-        </div>
-        <div className="mt-3 text-xs text-slate-900/65 tracking-widest">USign Console</div>
-      </motion.button>
+        <motion.div
+          className="relative select-none"
+          initial={false}
+          animate={
+            starting
+              ? { scale: 1.18, opacity: 0, rotateZ: -1.2, filter: "blur(10px)" }
+              : { scale: 1, opacity: 1, rotateZ: 0, filter: "blur(0px)" }
+          }
+          transition={starting ? { duration: 0.52, ease: "easeInOut" } : { duration: 0.22 }}
+        >
+          {/* Logo_U behind robot (large) */}
+          <motion.img
+            src={logoU}
+            alt=""
+            draggable={false}
+            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(110vw,980px)] h-auto"
+            initial={false}
+            animate={
+              starting
+                ? { opacity: 0, scale: 1.12, filter: "blur(6px)" }
+                : { opacity: 0.26, scale: 1.0, filter: "blur(0px)" }
+            }
+            transition={{ duration: 0.28, ease: "easeInOut" }}
+            style={{
+              mixBlendMode: "screen",
+              filter: "drop-shadow(0 28px 90px rgba(0,0,0,0.35))",
+            }}
+          />
+
+          {/* Base robot */}
+          <img
+            src={robotBlue}
+            alt="Robot"
+            draggable={false}
+            className="relative w-[min(92vw,720px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
+          />
+
+          {/* Green-eyes swap ONLY (no additional overlay layers) */}
+          <motion.img
+            src={robotGreen}
+            alt=""
+            draggable={false}
+            className="pointer-events-none absolute inset-0 w-full h-full"
+            initial={{ opacity: 0 }}
+            animate={starting ? { opacity: 1 } : { opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeInOut" }}
+          />
+
+          {/* Chest "Start" hitbox + glowing text (no hover background box) */}
+          <div
+            className="absolute left-1/2 -translate-x-1/2"
+            style={{ top: "38%", left: "52%", width: "44%", height: "16%" }}
+          >
+            <button
+              type="button"
+              onClick={begin}
+              onKeyDown={onKeyStart}
+              disabled={starting}
+              aria-label="Start"
+              title="Start"
+              className="w-full h-full bg-transparent border-0 outline-none focus:outline-none"
+              style={{
+                WebkitTapHighlightColor: "transparent",
+                background: "transparent",
+              }}
+            >
+              <div className="w-full h-full flex items-center justify-center">
+                <motion.div
+                  initial={false}
+                  animate={
+                    starting
+                      ? { opacity: 0.25, scale: 0.98, letterSpacing: "0.40em" }
+                      : { opacity: 1, scale: 1, letterSpacing: "0.32em" }
+                  }
+                  transition={{ duration: 0.18 }}
+                  className="uppercase font-semibold text-[clamp(50px,3.6vw,50px)]"
+                  style={{
+                    color: "rgba(0, 0, 0, 0.88)",
+                    textShadow: `
+                      0 0 6px  rgba(56,189,248,1),
+                      0 0 18px rgba(56,189,248,0.95),
+                      0 0 42px rgba(56,189,248,0.85),
+                      0 0 80px rgba(56,189,248,0.55)
+                    `,
+                    filter: "drop-shadow(0 0 18px rgba(56,189,248,0.9))",
+                  }}
+                >
+                  Start
+                </motion.div>
+              </div>
+            </button>
+          </div>
+        </motion.div>
+
+        <motion.div
+          className="mt-5 text-center text-xs tracking-widest text-white/70"
+          initial={false}
+          animate={starting ? { opacity: 0 } : { opacity: 1 }}
+          transition={{ duration: 0.18 }}
+        >
+          Click the chest to begin
+        </motion.div>
+      </motion.div>
     </div>
   );
 }
@@ -159,15 +263,7 @@ function HomeScreen({ onStart }) {
  * ✅ Uses useLayoutEffect to compute position BEFORE paint
  * ✅ Does not render until pos is ready → no snap / choppy animation
  */
-function ActivityDropdown({
-  open,
-  anchorRef,
-  onClose,
-  smallBtn,
-  uiStats,
-  isLiveTranslating,
-  events,
-}) {
+function ActivityDropdown({ open, anchorRef, onClose, smallBtn, uiStats, isLiveTranslating, events }) {
   const [pos, setPos] = useState(null);
 
   const computePos = () => {
@@ -177,19 +273,12 @@ function ActivityDropdown({
     const r = el.getBoundingClientRect();
     const width = window.innerWidth < 640 ? 340 : 380;
 
-    // right-aligned to the button, clamped to viewport
-    const left = Math.min(
-      window.innerWidth - width - 12,
-      Math.max(12, r.right - width)
-    );
-
-    // below button, clamped to viewport
+    const left = Math.min(window.innerWidth - width - 12, Math.max(12, r.right - width));
     const top = Math.min(window.innerHeight - 12, r.bottom + 10);
 
     return { top, left, width };
   };
 
-  // Compute position synchronously before paint whenever opening
   useLayoutEffect(() => {
     if (!open) {
       setPos(null);
@@ -199,7 +288,6 @@ function ActivityDropdown({
     if (p) setPos(p);
   }, [open]);
 
-  // Keep it positioned if scrolling/resizing while open
   useEffect(() => {
     if (!open) return;
 
@@ -232,7 +320,7 @@ function ActivityDropdown({
   }, [open, onClose, anchorRef]);
 
   if (!open) return null;
-  if (!pos) return null; // ✅ don't animate from wrong coordinates
+  if (!pos) return null;
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -265,9 +353,7 @@ function ActivityDropdown({
             </div>
             <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
               <div>Status</div>
-              <div className="text-slate-900 font-semibold">
-                {isLiveTranslating ? "LIVE" : "Idle"}
-              </div>
+              <div className="text-slate-900 font-semibold">{isLiveTranslating ? "LIVE" : "Idle"}</div>
             </div>
           </div>
 
@@ -349,15 +435,12 @@ function AppScreen({ onHome, logoImg }) {
   const pushEvent = (label) =>
     setEvents((prev) => [{ label, ts: new Date().toLocaleTimeString() }, ...prev].slice(0, 10));
 
-  // Keep cameraEnabled in sync with the stream
   useEffect(() => {
     const hasLiveTrack =
-      !!streamRef.current &&
-      streamRef.current.getTracks().some((t) => t.readyState === "live");
+      !!streamRef.current && streamRef.current.getTracks().some((t) => t.readyState === "live");
     setCameraEnabled(hasLiveTrack && mode === "camera");
   }, [mode]);
 
-  // attach stream after render
   useEffect(() => {
     if (mode !== "camera") return;
     if (!livePreviewRef.current) return;
@@ -372,7 +455,6 @@ function AppScreen({ onHome, logoImg }) {
     };
   }, []);
 
-  // update UI stats periodically (for activity panel)
   useEffect(() => {
     const id = setInterval(() => {
       const s = statsRef.current;
@@ -459,8 +541,7 @@ function AppScreen({ onHome, logoImg }) {
 
     try {
       const stream =
-        streamRef.current ??
-        (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
+        streamRef.current ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
       streamRef.current = stream;
 
       setMode("camera");
@@ -637,7 +718,6 @@ function AppScreen({ onHome, logoImg }) {
     };
 
     ws.onerror = (e) => {
-      clearTimeout(connectTimeout);
       console.error("WS error", e);
       setOutputText("Live translation connection error. Check WS route (/ws) and server logs.");
       pushEvent("WS error ❌");
@@ -645,7 +725,6 @@ function AppScreen({ onHome, logoImg }) {
     };
 
     ws.onclose = (e) => {
-      clearTimeout(connectTimeout);
       console.log("WS closed", e.code, e.reason);
 
       if (isLiveRef.current) {
@@ -666,12 +745,11 @@ function AppScreen({ onHome, logoImg }) {
     };
   };
 
+  // ✅ Clear ONLY the text output (do not touch uploaded videoSrc)
   const clear = () => {
-    if (videoSrc) URL.revokeObjectURL(videoSrc);
-    setVideoSrc("");
     setConfidence(0.98);
     setOutputText("");
-    pushEvent("Cleared");
+    pushEvent("Cleared text");
     showToast("Cleared");
   };
 
@@ -710,20 +788,26 @@ function AppScreen({ onHome, logoImg }) {
   const c = 2 * Math.PI * r;
   const dash = (confidencePct / 100) * c;
 
+  // Dark blue used for both shadows
+  const darkBlueShadow = "rgba(2, 32, 88, 0.70)";
+
+  // ✅ Activity button: add dark blue drop shadow behind it
   const iconBtn =
-    "rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl hover:bg-white/24 " +
-    "px-4 py-2 transition shadow-[0_10px_24px_rgba(0,0,0,0.14)]";
+    "rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl hover:bg-white/24 " +
+    "px-4 py-2 transition " +
+    "shadow-[0_10px_26px_rgba(2,32,88,0.55)]";
 
   const smallBtn =
-    "text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition";
+    "text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition";
 
   const primaryBtn =
-    "w-full h-[74px] rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl " +
+    "w-full h-[74px] rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl " +
     "hover:bg-white/24 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 " +
     "shadow-[0_10px_24px_rgba(0,0,0,0.12)] flex flex-col items-center justify-center";
 
-  const innerPane =
-    "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+  const innerPane = "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+  const translationPane =
+  "rounded-2xl border border-white/50 bg-white/45 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
 
   return (
     <div className="relative min-h-screen w-full">
@@ -741,7 +825,7 @@ function AppScreen({ onHome, logoImg }) {
       />
 
       <motion.div
-        className="relative z-10 h-[calc(100vh-1.5rem)] sm:h-[calc(100vh-2rem)] overflow-hidden rounded-[44px] p-3 sm:p-4 text-slate-900"
+        className="relative z-10 h-[calc(100vh-0.5rem)] sm:h-[calc(100vh-0.75rem)] overflow-hidden rounded-[44px] p-3 sm:p-4 text-slate-900"
         variants={stagger}
         initial="initial"
         animate="animate"
@@ -749,13 +833,29 @@ function AppScreen({ onHome, logoImg }) {
       >
         {/* HEADER */}
         <motion.div variants={headerFlow} className="flex items-center justify-between gap-4">
-          <div className="leading-none">
-            <div className="text-3xl font-semibold tracking-wide">
-              <span className="font-serif italic tracking-wide text-sky-900 drop-shadow-[0_10px_22px_rgba(255,255,255,0.55)]">
-                USign
-              </span>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={handleHome}
+            title="Go to home"
+            aria-label="Go to home"
+            className="p-0 bg-transparent border-0 outline-none focus:outline-none"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+          >
+            <img
+              src={appLogo}
+              alt="USign Home"
+              draggable={false}
+              className="
+                h-12 sm:h-14
+                w-auto
+                object-contain
+                select-none
+                transition-transform duration-150
+                hover:scale-105
+                active:scale-95
+              "
+            />
+          </button>
 
           <div className="relative flex items-center gap-3">
             <button
@@ -765,32 +865,50 @@ function AppScreen({ onHome, logoImg }) {
               className={iconBtn}
               title="Activity"
               aria-label="Activity"
+              style={{
+                filter: `drop-shadow(0 10px 20px ${darkBlueShadow})`,
+              }}
             >
               <span className="text-slate-900/80 text-sm font-medium">Activity</span>
             </button>
 
-            <button type="button" onClick={handleHome} className={iconBtn} title="Home" aria-label="Home">
-              {logoImg ? (
-                <img src={logoImg} alt="Logo" className="h-7 w-7 object-contain" draggable={false} />
-              ) : (
-                <span className="text-slate-900/80 text-sm font-medium">Home</span>
-              )}
+            <button
+              type="button"
+              onClick={handleHome}
+              title="Go to home"
+              aria-label="Go to home"
+              className="p-0 bg-transparent border-0 outline-none focus:outline-none"
+              style={{ WebkitTapHighlightColor: "transparent" }}
+            >
+              <img
+                src={robotHeadBlue}
+                alt="Home"
+                draggable={false}
+                className="
+                  h-10 w-10
+                  object-contain
+                  select-none
+                  transition-transform duration-150
+                  hover:scale-110
+                "
+                // ✅ Match the Activity button’s dark blue shadow
+                style={{
+                  filter: `drop-shadow(0 0 10px ${darkBlueShadow}) drop-shadow(0 10px 18px rgba(2,32,88,0.45))`,
+                }}
+              />
             </button>
           </div>
         </motion.div>
 
         {/* MAIN GRID */}
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-3.25rem)]">
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-4.25rem)]">
           {/* LEFT PANEL */}
           <motion.div variants={panelFlow} className="lg:col-span-8 h-full">
             <Card className="h-full">
               <div className="p-4 h-full flex flex-col min-h-0 gap-4">
-                <div
-                  className={"relative flex-none " + innerPane}
-                  style={{ height: "clamp(320px, 62vh, 520px)" }}
-                >
+                <div className={"relative flex-none " + innerPane} style={{ height: "clamp(320px, 62vh, 520px)" }}>
                   <div className="absolute top-3 left-3 z-10">
-                    <div className="rounded-full border border-white/35 bg-white/20 backdrop-blur-xl px-3 py-1 text-xs">
+                    <div className="rounded-full border border-white/50 bg-white/20 backdrop-blur-xl px-3 py-1 text-xs">
                       {mode === "camera" ? (
                         <span className="text-emerald-900 font-semibold">LIVE</span>
                       ) : videoSrc ? (
@@ -905,7 +1023,7 @@ function AppScreen({ onHome, logoImg }) {
 
                       {!cameraEnabled && !isLiveTranslating && (
                         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition">
-                          <div className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.18)] text-slate-900/80 whitespace-nowrap">
+                          <div className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.18)] text-slate-900/80 whitespace-nowrap">
                             enable camera to start live translation
                           </div>
                         </div>
@@ -938,11 +1056,11 @@ function AppScreen({ onHome, logoImg }) {
                 </div>
 
                 <svg width="78" height="78" viewBox="0 0 86 86">
-                  <circle cx="43" cy="43" r={r} stroke="rgba(15,23,42,0.15)" strokeWidth="10" fill="none" />
+                  <circle cx="43" cy="43" r={34} stroke="rgba(15,23,42,0.15)" strokeWidth="10" fill="none" />
                   <motion.circle
                     cx="43"
                     cy="43"
-                    r={r}
+                    r={34}
                     stroke="#0EA5E9"
                     strokeWidth="10"
                     fill="none"
@@ -962,21 +1080,29 @@ function AppScreen({ onHome, logoImg }) {
               <div className="flex items-center justify-between">
                 <div className="text-sm text-slate-900/70">Translation</div>
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={copyText} className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition">
+                  <button
+                    type="button"
+                    onClick={copyText}
+                    className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition"
+                  >
                     Copy text
                   </button>
-                  <button type="button" onClick={clear} className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition">
+                  <button
+                    type="button"
+                    onClick={clear}
+                    className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition"
+                  >
                     Clear
                   </button>
                 </div>
               </div>
 
-              <div className={"mt-4 flex-1 min-h-0 p-4 " + innerPane}>
+              <div className={"mt-4 flex-1 min-h-0 p-4 " + translationPane}>
                 <div className="h-full overflow-auto pr-1">
                   {outputText ? (
                     <div className="text-slate-900 leading-relaxed text-base whitespace-pre-wrap">{outputText}</div>
                   ) : (
-                    <div className="text-slate-900/50 text-base">Translation output will appear here…</div>
+                    <div className="text-black-900/50 text-base">Translation output will appear here…</div>
                   )}
                 </div>
               </div>
