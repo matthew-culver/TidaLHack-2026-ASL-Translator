@@ -3,13 +3,23 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 
-import bgImg from "./assets/bg.png";
+// ✅ BLUE THEME
+import bgBlue from "./assets/bg.png";
 import robotBlue from "./assets/Robot_Blue.png";
 import robotGreen from "./assets/Robot_Green.png";
 import robotHeadBlue from "./assets/robot_head_blue.png";
-import appLogo from "./assets/Logo.png";
-import logoU from "./assets/Logo_U.png";
-import signImg from "./assets/sign.png"; // ✅ NEW
+import appLogoBlue from "./assets/Logo.png";
+import logoUBlue from "./assets/Logo_U.png";
+import signBlue from "./assets/sign.png";
+
+// ✅ ORANGE THEME
+import bgOrange from "./assets/bg-orange.png";
+import robotOrange from "./assets/robot_orange.png";
+import robotOrangeGreen from "./assets/robot_orange_green.png";
+import robotHeadOrange from "./assets/robot_head_orange.png";
+import appLogoOrange from "./assets/logo_orange.png";
+import logoUOrange from "./assets/logo_u_orange.png";
+import signOrange from "./assets/sign_orange.png";
 
 // send video file/blob to backend
 async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
@@ -29,29 +39,45 @@ function PageFrame({ children }) {
   return <div className="min-h-screen w-full relative">{children}</div>;
 }
 
-function FixedBackground() {
+/**
+ * ✅ Smooth fade between theme backgrounds
+ */
+function FixedBackground({ bgSrc }) {
   return (
     <>
       <div className="fixed inset-0 -z-20 bg-black" />
-      <div
-        className="fixed inset-0 -z-10"
-        style={{
-          backgroundImage: `url(${bgImg})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundRepeat: "no-repeat",
-        }}
-      />
+      <div className="fixed inset-0 -z-10">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={bgSrc}
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.28, ease: "easeInOut" }}
+            style={{
+              backgroundImage: `url(${bgSrc})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundRepeat: "no-repeat",
+            }}
+          />
+        </AnimatePresence>
+      </div>
     </>
   );
 }
 
 /** Glass UI helpers **/
-function Card({ children, className = "" }) {
+function Card({ children, className = "", isOrange }) {
+  // ✅ On orange theme: slightly darker translucent panel background
+  const bg = isOrange ? "bg-black/28" : "bg-white/18";
   return (
     <div
       className={
-        "overflow-hidden rounded-3xl border border-white/30 bg-white/18 backdrop-blur-xl " +
+        "overflow-hidden rounded-3xl border border-white/30 " +
+        bg +
+        " backdrop-blur-xl " +
         "shadow-[0_18px_55px_rgba(0,0,0,0.22)] " +
         className
       }
@@ -61,7 +87,7 @@ function Card({ children, className = "" }) {
   );
 }
 
-function Toast({ show, text }) {
+function Toast({ show, text, isOrange }) {
   return (
     <AnimatePresence>
       {show ? (
@@ -72,12 +98,54 @@ function Toast({ show, text }) {
           exit={{ opacity: 0, y: 16, scale: 0.98 }}
           transition={{ duration: 0.18 }}
         >
-          <div className="rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl px-4 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.30)] text-slate-900 text-sm">
+          <div
+            className="rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl px-4 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.30)] text-sm"
+            style={{ color: isOrange ? "white" : "#0f172a" }}
+          >
             {text}
           </div>
         </motion.div>
       ) : null}
     </AnimatePresence>
+  );
+}
+
+/** Shared Theme Toggle Button (same look everywhere, no background box) **/
+function ThemeToggleButton({ onClick, imgSrc, alt = "Toggle theme", darkBlueShadow }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Toggle theme"
+      aria-label="Toggle theme"
+      className="p-0 bg-transparent border-0 outline-none focus:outline-none"
+      style={{ WebkitTapHighlightColor: "transparent" }}
+    >
+      <div className="relative h-10 w-10">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.img
+            key={imgSrc}
+            src={imgSrc}
+            alt={alt}
+            draggable={false}
+            className="
+              h-10 w-10
+              object-contain
+              select-none
+              transition-transform duration-150
+              hover:scale-110
+            "
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeInOut" }}
+            style={{
+              filter: `drop-shadow(0 0 10px ${darkBlueShadow}) drop-shadow(0 10px 18px rgba(2,32,88,0.45))`,
+            }}
+          />
+        </AnimatePresence>
+      </div>
+    </button>
   );
 }
 
@@ -121,13 +189,11 @@ const stagger = {
 };
 
 /**
- * HOME: Robot with chest "Start"
- * Updates:
- * - ✅ Raise robot slightly
- * - ✅ Add sign.png under robot, above LogoU, centered
- * - ✅ Home screen is fixed / unscrollable (also enforced in SignApp)
+ * HOME
+ * ✅ All theme-visible assets crossfade: Logo_U, Robot base, Eyes overlay, Sign, START glow
+ * ✅ Theme toggle button matches main page (no box)
  */
-function HomeScreen({ onStart }) {
+function HomeScreen({ onStart, assets, isOrange, toggleTheme }) {
   const [starting, setStarting] = useState(false);
 
   const begin = () => {
@@ -136,7 +202,7 @@ function HomeScreen({ onStart }) {
     window.setTimeout(() => onStart(), 620);
   };
 
-  // ✅ Press Enter / Space anywhere on the home screen to start
+  // Press Enter / Space anywhere on the home screen to start
   useEffect(() => {
     const onKeyDown = (e) => {
       if (starting) return;
@@ -149,8 +215,36 @@ function HomeScreen({ onStart }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [starting]);
 
+  const darkBlueShadow = "rgba(2, 32, 88, 0.70)";
+
+  const startGlowBlue = `
+    0 0 10px rgba(56,189,248,1),
+    0 0 26px rgba(56,189,248,0.95),
+    0 0 60px rgba(56,189,248,0.75),
+    0 0 110px rgba(56,189,248,0.55)
+  `;
+  const startGlowOrange = `
+    0 0 10px rgba(251,146,60,1),
+    0 0 26px rgba(251,146,60,0.95),
+    0 0 60px rgba(251,146,60,0.75),
+    0 0 110px rgba(251,146,60,0.55)
+  `;
+
+  const startDropBlue = "drop-shadow(0 0 22px rgba(56,189,248,0.95))";
+  const startDropOrange = "drop-shadow(0 0 22px rgba(251,146,60,0.95))";
+
   return (
     <div className="fixed inset-0 overflow-hidden w-full flex items-center justify-center p-6">
+      {/* ✅ Theme toggle (same as main page, no background box) */}
+      <div className="absolute top-6 right-6 z-[80]">
+        <ThemeToggleButton
+          onClick={toggleTheme}
+          imgSrc={assets.robotHead}
+          alt="Toggle theme"
+          darkBlueShadow={darkBlueShadow}
+        />
+      </div>
+
       <motion.div
         className="relative"
         initial={{ opacity: 0, y: 18, scale: 0.98, filter: "blur(8px)" }}
@@ -168,73 +262,98 @@ function HomeScreen({ onStart }) {
           }
           transition={starting ? { duration: 0.52, ease: "easeInOut" } : { duration: 0.22 }}
         >
-          {/* Logo_U behind robot (large) */}
-          <motion.img
-            src={logoU}
-            alt=""
-            draggable={false}
-            className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-18/32 w-[min(50vw,500px)] h-auto z-0"
-            initial={false}
-            animate={
-              starting
-                ? { opacity: 1, scale: 1.12, filter: "blur(6px)" }
-                : { opacity: 1, scale: 1.0, filter: "blur(0px)" }
-            }
-            transition={{ duration: 0.28, ease: "easeInOut" }}
-            style={{
-              mixBlendMode: "screen",
-              filter: "drop-shadow(0 28px 90px rgba(0,0,0,0.35))",
-            }}
-          />
-
-          {/* Robot (raised) */}
-          <img
-            src={robotBlue}
-            alt="Robot"
-            draggable={false}
-            className="relative z-20 w-[min(95vw,750px)] h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
-            style={{ transform: "translateY(-40px) translateX(-2.5px)" }}
-          />
-
-          {/* Green-eyes swap ONLY */}
-          <motion.img
-            src={robotGreen}
-            alt=""
-            draggable={false}
-            className="pointer-events-none absolute inset-0 z-30 w-full h-full"
-            initial={{ opacity: 0 }}
-            animate={starting ? { opacity: 1 } : { opacity: 0 }}
-            transition={{ duration: 0.22, ease: "easeInOut" }}
-            style={{ transform: "translateY(-40px)" }}
-          />
-
-          {/* ✅ SIGN: small, contained on robot chest */}
-          <div
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 z-40"
-            style={{
-              top: "41%",
-              left: "56.5%",
-              width: "13%",
-              height: "14%",
-              transform: "translate(-50%, -50px)",
-            }}
-          >
-            <img
-              src={signImg}
-              alt=""
-              draggable={false}
-              className="w-full h-full object-contain"
-              style={{
-                filter:
-                  "drop-shadow(0 0 2px rgba(0,0,0,0.9)) " +
-                  "drop-shadow(0 0 10px rgba(0,0,0,0.55)) " +
-                  "drop-shadow(0 18px 55px rgba(0,0,0,0.55))",
-                opacity: 0.98,
-              }}
-            />
+          {/* ✅ Logo_U behind robot — crossfade */}
+          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-18/32 w-[min(50vw,500px)] h-auto z-0">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.img
+                key={assets.logoU}
+                src={assets.logoU}
+                alt=""
+                draggable={false}
+                className="w-full h-auto"
+                initial={{ opacity: 0 }}
+                animate={
+                  starting
+                    ? { opacity: 1, scale: 1.12, filter: "blur(6px)" }
+                    : { opacity: 1, scale: 1.0, filter: "blur(0px)" }
+                }
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.28, ease: "easeInOut" }}
+                style={{
+                  mixBlendMode: "screen",
+                  filter: "drop-shadow(0 28px 90px rgba(0,0,0,0.35))",
+                }}
+              />
+            </AnimatePresence>
           </div>
 
-          {/* ✅ START: big, bottom-centered, clickable */}
+          {/* ✅ Robot base — crossfade on theme change */}
+          <div className="relative z-20 w-[min(95vw,750px)]">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.img
+                key={assets.robotBase}
+                src={assets.robotBase}
+                alt="Robot"
+                draggable={false}
+                className="w-full h-auto drop-shadow-[0_32px_110px_rgba(0,0,0,0.50)]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22, ease: "easeInOut" }}
+                style={{ transform: "translateY(-40px) translateX(-2.5px)" }}
+              />
+            </AnimatePresence>
+
+            {/* ✅ Eyes overlay — crossfade AND still does "starting" fade-in */}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.img
+                key={assets.robotEyes}
+                src={assets.robotEyes}
+                alt=""
+                draggable={false}
+                className="pointer-events-none absolute inset-0 z-30 w-full h-full"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: starting ? 1 : 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22, ease: "easeInOut" }}
+                style={{ transform: "translateY(-40px) translateX(-2.5px)" }}
+              />
+            </AnimatePresence>
+
+            {/* ✅ SIGN — crossfade */}
+            <div
+              className="pointer-events-none absolute left-1/2 -translate-x-1/2 z-40"
+              style={{
+                top: "41%",
+                left: "56.5%",
+                width: "13%",
+                height: "14%",
+                transform: "translate(-50%, -50px)",
+              }}
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.img
+                  key={assets.sign}
+                  src={assets.sign}
+                  alt=""
+                  draggable={false}
+                  className="w-full h-full object-contain"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.98 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, ease: "easeInOut" }}
+                  style={{
+                    filter:
+                      "drop-shadow(0 0 2px rgba(0,0,0,0.9)) " +
+                      "drop-shadow(0 0 10px rgba(0,0,0,0.55)) " +
+                      "drop-shadow(0 18px 55px rgba(0,0,0,0.55))",
+                  }}
+                />
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* ✅ START — crossfade glow between themes */}
           <div className="absolute left-1/2 -translate-x-29/64 z-50" style={{ bottom: "-34px" }}>
             <button
               type="button"
@@ -245,37 +364,28 @@ function HomeScreen({ onStart }) {
               aria-label="Start"
               title="Start"
             >
-              <motion.div
-                initial={false}
-                animate={
-                  starting
-                    ? { opacity: 0.25, scale: 0.98, letterSpacing: "0.42em" }
-                    : { opacity: 1, scale: 1, letterSpacing: "0.34em" }
-                }
-                transition={{ duration: 0.18 }}
-                className="uppercase font-semibold text-[clamp(32px,6.2vw,64px)]"
-                style={{
-                  color: "white",
-                  textShadow: `
-                    0 0 10px rgba(56,189,248,1),
-                    0 0 26px rgba(56,189,248,0.95),
-                    0 0 60px rgba(56,189,248,0.75),
-                    0 0 110px rgba(56,189,248,0.55)
-                  `,
-                  filter: "drop-shadow(0 0 22px rgba(56,189,248,0.95))",
-                }}
-              >
-                START
-              </motion.div>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={isOrange ? "start-orange" : "start-blue"}
+                  initial={{ opacity: 0 }}
+                  animate={
+                    starting
+                      ? { opacity: 0.25, scale: 0.98, letterSpacing: "0.42em" }
+                      : { opacity: 1, scale: 1, letterSpacing: "0.34em" }
+                  }
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.18, ease: "easeInOut" }}
+                  className="uppercase font-semibold text-[clamp(32px,6.2vw,64px)]"
+                  style={{
+                    color: "white",
+                    textShadow: isOrange ? startGlowOrange : startGlowBlue,
+                    filter: isOrange ? startDropOrange : startDropBlue,
+                  }}
+                >
+                  START
+                </motion.div>
+              </AnimatePresence>
             </button>
-
-            <motion.div
-              className="mt-2 text-center text-xs tracking-widest text-white/70"
-              initial={false}
-              animate={starting ? { opacity: 0 } : { opacity: 1 }}
-              transition={{ duration: 0.18 }}
-            >
-            </motion.div>
           </div>
         </motion.div>
       </motion.div>
@@ -288,7 +398,7 @@ function HomeScreen({ onStart }) {
  * ✅ Uses useLayoutEffect to compute position BEFORE paint
  * ✅ Does not render until pos is ready → no snap / choppy animation
  */
-function ActivityDropdown({ open, anchorRef, onClose, smallBtn, uiStats, isLiveTranslating, events }) {
+function ActivityDropdown({ open, anchorRef, onClose, smallBtn, uiStats, isLiveTranslating, events, textColor, isOrange }) {
   const [pos, setPos] = useState(null);
 
   const computePos = () => {
@@ -359,37 +469,43 @@ function ActivityDropdown({ open, anchorRef, onClose, smallBtn, uiStats, isLiveT
         exit={{ opacity: 0, y: 8, scale: 0.96 }}
         transition={{ duration: 0.16 }}
       >
-        <Card className="p-4">
+        <Card className="p-4" isOrange={isOrange}>
           <div className="flex items-center justify-between">
-            <div className="text-sm text-slate-900/70">Activity</div>
-            <button type="button" onClick={onClose} className={smallBtn}>
+            <div className="text-sm" style={{ color: textColor, opacity: 0.75 }}>
+              Activity
+            </div>
+            <button type="button" onClick={onClose} className={smallBtn} style={{ color: textColor }}>
               Close
             </button>
           </div>
 
           <div className="mt-3 rounded-2xl bg-white/10 p-3">
-            <div className="flex items-center justify-between text-xs text-slate-900/70">
+            <div className="flex items-center justify-between text-xs" style={{ color: textColor, opacity: 0.75 }}>
               <div>Frames sent</div>
-              <div className="text-slate-900 font-semibold">{uiStats.frames}</div>
+              <div style={{ color: textColor, fontWeight: 700 }}>{uiStats.frames}</div>
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+            <div className="mt-2 flex items-center justify-between text-xs" style={{ color: textColor, opacity: 0.75 }}>
               <div>Estimated FPS</div>
-              <div className="text-slate-900 font-semibold">{uiStats.fps || 0}</div>
+              <div style={{ color: textColor, fontWeight: 700 }}>{uiStats.fps || 0}</div>
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+            <div className="mt-2 flex items-center justify-between text-xs" style={{ color: textColor, opacity: 0.75 }}>
               <div>Status</div>
-              <div className="text-slate-900 font-semibold">{isLiveTranslating ? "LIVE" : "Idle"}</div>
+              <div style={{ color: textColor, fontWeight: 700 }}>{isLiveTranslating ? "LIVE" : "Idle"}</div>
             </div>
           </div>
 
           <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-1">
             {events.length === 0 ? (
-              <div className="text-slate-900/60 text-sm">No events yet.</div>
+              <div className="text-sm" style={{ color: textColor, opacity: 0.6 }}>
+                No events yet.
+              </div>
             ) : (
               events.map((e, idx) => (
                 <div key={idx} className="flex items-start justify-between gap-3 text-sm">
-                  <div className="text-slate-900">{e.label}</div>
-                  <div className="text-slate-900/50 text-xs whitespace-nowrap">{e.ts}</div>
+                  <div style={{ color: textColor }}>{e.label}</div>
+                  <div className="text-xs whitespace-nowrap" style={{ color: textColor, opacity: 0.55 }}>
+                    {e.ts}
+                  </div>
                 </div>
               ))
             )}
@@ -401,11 +517,11 @@ function ActivityDropdown({ open, anchorRef, onClose, smallBtn, uiStats, isLiveT
   );
 }
 
-function AppScreen({ onHome, logoImg }) {
+function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
   const [videoSrc, setVideoSrc] = useState("");
   const [mode, setMode] = useState("idle"); // idle | camera
 
-  const [confidence, setConfidence] = useState(0.98);
+  const [confidence, setConfidence] = useState(0);
   const [outputText, setOutputText] = useState("");
 
   const [isSending, setIsSending] = useState(false);
@@ -734,9 +850,6 @@ function AppScreen({ onHome, logoImg }) {
         if (msg.throttled) pushEvent("Throttling (Gemini limits)");
         if (typeof msg.confidence === "number") setConfidence(msg.confidence);
         statsRef.current.lastPartialAt = performance.now();
-        if (msg.type === "result" && msg.text && msg.text.trim()) {
-          playTTS(msg.text);
-        }
       } else if (msg.type === "error") {
         setOutputText(`Live error: ${msg.message || "Unknown error"}`);
         pushEvent("Backend error ❌");
@@ -774,9 +887,9 @@ function AppScreen({ onHome, logoImg }) {
     };
   };
 
-  // ✅ Clear ONLY the text output (do not touch uploaded videoSrc)
+  // Clear ONLY the text output (do not touch uploaded videoSrc)
   const clear = () => {
-    setConfidence(0.98);
+    setConfidence(0);
     setOutputText("");
     pushEvent("Cleared text");
     showToast("Cleared");
@@ -806,37 +919,6 @@ function AppScreen({ onHome, logoImg }) {
     }
   };
 
-  const playTTS = async (text) => {
-    if (!text || !text.trim()) return;
-    
-    try {
-      const response = await fetch('http://localhost:3001/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text: text,
-          voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel voice
-        })
-      });
-      
-      if (!response.ok) {
-        console.error('TTS failed:', await response.text());
-        return;
-      }
-      
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      
-      audio.onended = () => URL.revokeObjectURL(audioUrl);
-      await audio.play();
-      
-      pushEvent("🔊 Played audio");
-    } catch (err) {
-      console.error('TTS error:', err);
-    }
-  };
-
   const handleHome = () => {
     if (isLiveTranslating) stopLiveTranslation();
     if (cameraEnabled) disableCamera();
@@ -848,10 +930,8 @@ function AppScreen({ onHome, logoImg }) {
   const c = 2 * Math.PI * r;
   const dash = (confidencePct / 100) * c;
 
-  // Dark blue used for both shadows
   const darkBlueShadow = "rgba(2, 32, 88, 0.70)";
 
-  // ✅ Activity button: add dark blue drop shadow behind it
   const iconBtn =
     "rounded-2xl border border-white/50 bg-white/18 backdrop-blur-xl hover:bg-white/24 " +
     "px-4 py-2 transition " +
@@ -865,14 +945,32 @@ function AppScreen({ onHome, logoImg }) {
     "hover:bg-white/24 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 " +
     "shadow-[0_10px_24px_rgba(0,0,0,0.12)] flex flex-col items-center justify-center";
 
-  const innerPane = "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
-  const translationPane =
-    "rounded-2xl border border-white/50 bg-white/45 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+  const innerPane = isOrange
+    ? "rounded-2xl bg-black/20 shadow-[0_10px_24px_rgba(0,0,0,0.22)] overflow-hidden"
+    : "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+
+  // ✅ Fix: translation textbox not transparent in orange theme
+  const translationPane = isOrange
+    ? "rounded-2xl border border-white/60 bg-white/20 backdrop-blur-sm shadow-[0_14px_36px_rgba(0,0,0,0.35)] overflow-hidden"
+    : "rounded-2xl border border-white/50 bg-white/45 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+
+  // ✅ orange glow behind app logo for visibility in orange theme
+  const logoGlow = isOrange
+    ? {
+        filter:
+          "drop-shadow(0 0 10px rgba(251,146,60,0.95)) drop-shadow(0 0 26px rgba(251,146,60,0.75)) drop-shadow(0 14px 55px rgba(251,146,60,0.45))",
+      }
+    : {
+        filter: "drop-shadow(0 14px 45px rgba(0,0,0,0.18))",
+      };
+
+  // ✅ confidence ring color toggles (blue -> orange)
+  const ringColor = isOrange ? "#FB923C" : "#0EA5E9";
 
   return (
-    <div className="relative min-h-screen w-full">
+    <div className="relative min-h-screen w-full" style={{ color: textColor }}>
       <canvas ref={canvasRef} className="hidden" />
-      <Toast show={toast.show} text={toast.text} />
+      <Toast show={toast.show} text={toast.text} isOrange={isOrange} />
 
       <ActivityDropdown
         open={showActivity}
@@ -882,10 +980,12 @@ function AppScreen({ onHome, logoImg }) {
         uiStats={uiStats}
         isLiveTranslating={isLiveTranslating}
         events={events}
+        textColor={textColor}
+        isOrange={isOrange}
       />
 
       <motion.div
-        className="relative z-10 h-[calc(100vh-0.5rem)] sm:h-[calc(100vh-0.75rem)] overflow-hidden rounded-[44px] p-3 sm:p-4 text-slate-900"
+        className="relative z-10 h-[calc(100vh-0.5rem)] sm:h-[calc(100vh-0.75rem)] overflow-hidden rounded-[44px] p-3 sm:p-4"
         variants={stagger}
         initial="initial"
         animate="animate"
@@ -901,20 +1001,29 @@ function AppScreen({ onHome, logoImg }) {
             className="p-0 bg-transparent border-0 outline-none focus:outline-none"
             style={{ WebkitTapHighlightColor: "transparent" }}
           >
-            <img
-              src={appLogo}
-              alt="USign Home"
-              draggable={false}
-              className="
-                h-12 sm:h-14
-                w-auto
-                object-contain
-                select-none
-                transition-transform duration-150
-                hover:scale-105
-                active:scale-95
-              "
-            />
+            <div className="relative h-12 sm:h-14 w-auto" style={logoGlow}>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.img
+                  key={assets.appLogo}
+                  src={assets.appLogo}
+                  alt="USign Home"
+                  draggable={false}
+                  className="
+                    h-12 sm:h-14
+                    w-auto
+                    object-contain
+                    select-none
+                    transition-transform duration-150
+                    hover:scale-105
+                    active:scale-95
+                  "
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, ease: "easeInOut" }}
+                />
+              </AnimatePresence>
+            </div>
           </button>
 
           <div className="relative flex items-center gap-3">
@@ -927,36 +1036,21 @@ function AppScreen({ onHome, logoImg }) {
               aria-label="Activity"
               style={{
                 filter: `drop-shadow(0 10px 20px ${darkBlueShadow})`,
+                color: textColor,
               }}
             >
-              <span className="text-slate-900/80 text-sm font-medium">Activity</span>
+              <span className="text-sm font-medium" style={{ color: textColor, opacity: 0.85 }}>
+                Activity
+              </span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleHome}
-              title="Go to home"
-              aria-label="Go to home"
-              className="p-0 bg-transparent border-0 outline-none focus:outline-none"
-              style={{ WebkitTapHighlightColor: "transparent" }}
-            >
-              <img
-                src={robotHeadBlue}
-                alt="Home"
-                draggable={false}
-                className="
-                  h-10 w-10
-                  object-contain
-                  select-none
-                  transition-transform duration-150
-                  hover:scale-110
-                "
-                // ✅ Match the Activity button’s dark blue shadow
-                style={{
-                  filter: `drop-shadow(0 0 10px ${darkBlueShadow}) drop-shadow(0 10px 18px rgba(2,32,88,0.45))`,
-                }}
-              />
-            </button>
+            {/* ✅ Theme toggle (same component) */}
+            <ThemeToggleButton
+              onClick={toggleTheme}
+              imgSrc={assets.robotHead}
+              alt="Toggle theme"
+              darkBlueShadow={darkBlueShadow}
+            />
           </div>
         </motion.div>
 
@@ -964,7 +1058,7 @@ function AppScreen({ onHome, logoImg }) {
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-4.25rem)] min-h-0">
           {/* LEFT PANEL */}
           <motion.div variants={panelFlow} className="lg:col-span-8 h-full">
-            <Card className="h-full">
+            <Card className="h-full" isOrange={isOrange}>
               <div className="p-4 h-full flex flex-col min-h-0 gap-4">
                 <div className={"relative flex-none " + innerPane} style={{ height: "clamp(320px, 62vh, 520px)" }}>
                   <div className="absolute top-3 left-3 z-10">
@@ -974,7 +1068,9 @@ function AppScreen({ onHome, logoImg }) {
                       ) : videoSrc ? (
                         <span className="text-indigo-900 font-semibold">PLAYBACK</span>
                       ) : (
-                        <span className="text-slate-900/70 font-semibold">IDLE</span>
+                        <span className="font-semibold" style={{ color: textColor, opacity: 0.75 }}>
+                          IDLE
+                        </span>
                       )}
                     </div>
                   </div>
@@ -988,7 +1084,9 @@ function AppScreen({ onHome, logoImg }) {
                         exit={{ opacity: 0 }}
                       >
                         <div className="w-[70%] max-w-md">
-                          <div className="text-sm text-slate-900/80 mb-2 font-medium">Sending…</div>
+                          <div className="text-sm mb-2 font-medium" style={{ color: textColor, opacity: 0.85 }}>
+                            Sending…
+                          </div>
                           <div className="h-2 rounded-full bg-white/40 overflow-hidden">
                             <motion.div
                               className="h-full bg-sky-400/90"
@@ -1029,8 +1127,12 @@ function AppScreen({ onHome, logoImg }) {
                   ) : (
                     <div className="h-full w-full flex items-center justify-center text-center px-6">
                       <div>
-                        <div className="text-black/90 font-semibold text-lg">Upload Media or Enable Camera</div>
-                        <div className="mt-2 text-sm text-black/70">Your preview appears here</div>
+                        <div className="font-semibold text-lg" style={{ color: textColor }}>
+                          Upload Media or Enable Camera
+                        </div>
+                        <div className="mt-2 text-sm" style={{ color: textColor, opacity: 0.75 }}>
+                          Your preview appears here
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1040,32 +1142,24 @@ function AppScreen({ onHome, logoImg }) {
 
                 <div className="pt-4 border-t border-white/20">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch">
-                    <motion.button
-                      whileHover={{ y: -2 }}
-                      whileTap={{ scale: 0.98 }}
-                      type="button"
-                      onClick={toggleCamera}
-                      className={primaryBtn}
-                    >
-                      <div className="font-semibold text-slate-900 text-center">
+                    <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={toggleCamera} className={primaryBtn}>
+                      <div className="font-semibold text-center" style={{ color: textColor }}>
                         {cameraEnabled ? "Disable camera" : "Enable camera"}
                       </div>
-                      <div className="text-xs text-slate-900/70 text-center mt-1">
+                      <div className="text-xs text-center mt-1" style={{ color: textColor, opacity: 0.75 }}>
                         {cameraEnabled ? "Stop preview" : "Live preview"}
                       </div>
                     </motion.button>
 
                     <div className="relative group h-full">
                       {isLiveTranslating ? (
-                        <motion.button
-                          whileHover={{ y: -2 }}
-                          whileTap={{ scale: 0.98 }}
-                          type="button"
-                          onClick={stopLiveTranslation}
-                          className={primaryBtn}
-                        >
-                          <div className="font-semibold text-slate-900 text-center">Stop live translation</div>
-                          <div className="text-xs text-slate-900/70 text-center mt-1">End real-time processing</div>
+                        <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={stopLiveTranslation} className={primaryBtn}>
+                          <div className="font-semibold text-center" style={{ color: textColor }}>
+                            Stop live translation
+                          </div>
+                          <div className="text-xs text-center mt-1" style={{ color: textColor, opacity: 0.75 }}>
+                            End real-time processing
+                          </div>
                         </motion.button>
                       ) : (
                         <motion.button
@@ -1076,14 +1170,21 @@ function AppScreen({ onHome, logoImg }) {
                           disabled={!cameraEnabled}
                           className={primaryBtn}
                         >
-                          <div className="font-semibold text-slate-900 text-center">Start live translation</div>
-                          <div className="text-xs text-slate-900/70 text-center mt-1">Real-time ASL → text</div>
+                          <div className="font-semibold text-center" style={{ color: textColor }}>
+                            Start live translation
+                          </div>
+                          <div className="text-xs text-center mt-1" style={{ color: textColor, opacity: 0.75 }}>
+                            Real-time ASL → text
+                          </div>
                         </motion.button>
                       )}
 
                       {!cameraEnabled && !isLiveTranslating && (
                         <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition">
-                          <div className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.18)] text-slate-900/80 whitespace-nowrap">
+                          <div
+                            className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.18)] whitespace-nowrap"
+                            style={{ color: textColor, opacity: 0.85 }}
+                          >
                             enable camera to start live translation
                           </div>
                         </div>
@@ -1097,8 +1198,12 @@ function AppScreen({ onHome, logoImg }) {
                       onClick={() => fileInputRef.current?.click()}
                       className={primaryBtn}
                     >
-                      <div className="font-semibold text-slate-900 text-center">Upload video</div>
-                      <div className="text-xs text-slate-900/70 text-center mt-1">Select from device</div>
+                      <div className="font-semibold text-center" style={{ color: textColor }}>
+                        Upload video
+                      </div>
+                      <div className="text-xs text-center mt-1" style={{ color: textColor, opacity: 0.75 }}>
+                        Select from device
+                      </div>
                     </motion.button>
                   </div>
                 </div>
@@ -1108,20 +1213,24 @@ function AppScreen({ onHome, logoImg }) {
 
           {/* RIGHT PANEL */}
           <motion.div variants={panelFlow} className="lg:col-span-4 flex flex-col gap-4 h-full min-h-0">
-            <Card className="p-4">
+            <Card className="p-4" isOrange={isOrange}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm text-slate-900/70">Confidence</div>
-                  <div className="text-xl font-semibold text-slate-900">{confidenceLabel}</div>
+                  <div className="text-sm" style={{ color: textColor, opacity: 0.75 }}>
+                    Confidence
+                  </div>
+                  <div className="text-xl font-semibold" style={{ color: textColor }}>
+                    {confidenceLabel}
+                  </div>
                 </div>
 
                 <svg width="78" height="78" viewBox="0 0 86 86">
-                  <circle cx="43" cy="43" r={34} stroke="rgba(15,23,42,0.15)" strokeWidth="10" fill="none" />
+                  <circle cx="43" cy="43" r={34} stroke="rgba(255,255,255,0.18)" strokeWidth="10" fill="none" />
                   <motion.circle
                     cx="43"
                     cy="43"
                     r={34}
-                    stroke="#0EA5E9"
+                    stroke={ringColor}
                     strokeWidth="10"
                     fill="none"
                     strokeLinecap="round"
@@ -1133,17 +1242,22 @@ function AppScreen({ onHome, logoImg }) {
                   />
                 </svg>
               </div>
-              <div className="mt-2 text-xs text-slate-900/60">(Placeholder until inference is wired)</div>
+
+              <div className="mt-2 text-xs" style={{ color: textColor, opacity: 0.7 }}>
+              </div>
             </Card>
 
-            <Card className="p-4 flex-1 min-h-0 flex flex-col">
+            <Card className="p-4 flex-1 min-h-0 flex flex-col" isOrange={isOrange}>
               <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-900/70">Translation</div>
+                <div className="text-sm" style={{ color: textColor, opacity: 0.75 }}>
+                  Translation
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={copyText}
                     className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition"
+                    style={{ color: textColor }}
                   >
                     Copy text
                   </button>
@@ -1151,6 +1265,7 @@ function AppScreen({ onHome, logoImg }) {
                     type="button"
                     onClick={clear}
                     className="text-xs rounded-xl border border-white/50 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition"
+                    style={{ color: textColor }}
                   >
                     Clear
                   </button>
@@ -1160,9 +1275,13 @@ function AppScreen({ onHome, logoImg }) {
               <div className={"mt-4 flex-1 min-h-0 p-4 " + translationPane}>
                 <div className="h-full min-h-0 overflow-auto pr-1">
                   {outputText ? (
-                    <div className="text-slate-900 leading-relaxed text-base whitespace-pre-wrap">{outputText}</div>
+                    <div className="leading-relaxed text-base whitespace-pre-wrap" style={{ color: textColor }}>
+                      {outputText}
+                    </div>
                   ) : (
-                    <div className="text-black/50 text-base">Translation output will appear here…</div>
+                    <div className="text-base" style={{ color: textColor, opacity: 0.55 }}>
+                      Translation output will appear here…
+                    </div>
                   )}
                 </div>
               </div>
@@ -1177,6 +1296,37 @@ function AppScreen({ onHome, logoImg }) {
 export default function SignApp() {
   const [screen, setScreen] = useState("home");
 
+  // ✅ theme: "blue" | "orange"
+  const [theme, setTheme] = useState("blue");
+  const isOrange = theme === "orange";
+
+  // ✅ all "black" text should become white on orange theme
+  const textColor = isOrange ? "white" : "#0f172a";
+
+  const toggleTheme = () => setTheme((t) => (t === "blue" ? "orange" : "blue"));
+
+  const assets = useMemo(() => {
+    return isOrange
+      ? {
+          bg: bgOrange,
+          robotBase: robotOrange,
+          robotEyes: robotOrangeGreen,
+          robotHead: robotHeadOrange,
+          logoU: logoUOrange,
+          sign: signOrange,
+          appLogo: appLogoOrange,
+        }
+      : {
+          bg: bgBlue,
+          robotBase: robotBlue,
+          robotEyes: robotGreen,
+          robotHead: robotHeadBlue,
+          logoU: logoUBlue,
+          sign: signBlue,
+          appLogo: appLogoBlue,
+        };
+  }, [isOrange]);
+
   // ✅ enforce no scroll while on home, restore otherwise
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -1188,7 +1338,7 @@ export default function SignApp() {
 
   return (
     <PageFrame>
-      <FixedBackground />
+      <FixedBackground bgSrc={assets.bg} />
 
       <AnimatePresence mode="wait" initial={false}>
         {screen === "home" ? (
@@ -1199,7 +1349,7 @@ export default function SignApp() {
             animate={{ opacity: 1, transition: { duration: 0.18 } }}
             exit={{ opacity: 0, transition: { duration: 0.18 } }}
           >
-            <HomeScreen onStart={() => setScreen("app")} />
+            <HomeScreen assets={assets} isOrange={isOrange} toggleTheme={toggleTheme} onStart={() => setScreen("app")} />
           </motion.div>
         ) : (
           <motion.div
@@ -1209,7 +1359,13 @@ export default function SignApp() {
             animate={{ opacity: 1, transition: { duration: 0.12 } }}
             exit={{ opacity: 0, transition: { duration: 0.12 } }}
           >
-            <AppScreen onHome={() => setScreen("home")} />
+            <AppScreen
+              assets={assets}
+              toggleTheme={toggleTheme}
+              isOrange={isOrange}
+              textColor={textColor}
+              onHome={() => setScreen("home")}
+            />
           </motion.div>
         )}
       </AnimatePresence>
