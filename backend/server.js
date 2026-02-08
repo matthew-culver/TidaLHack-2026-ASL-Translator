@@ -1,3 +1,4 @@
+//server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -155,16 +156,14 @@ wss.on("connection", (ws) => {
       if (now < cooldownUntil) {
         ws.send(JSON.stringify({
           type: "partial",
-          text: lastGood
-            ? (lastGood.text + "\n\n(Throttling to respect Gemini limits…)") 
-            : "Gemini is rate-limiting right now — throttling for a few seconds…",
+          text: lastGood ? lastGood.text : "",
           confidence: lastGood ? lastGood.confidence : 0,
           skipped: true,
-          throttled: true
+          throttled: true,
+          status: "throttling"
         }));
         return;
       }
-
       // Dedupe
       if (lastHash && lastHash === h && (now - lastHashAt) < DUP_TTL_MS) {
         if (lastGood) {
@@ -226,23 +225,30 @@ wss.on("connection", (ws) => {
         console.warn("saveTranslation failed:", e.message);
       }
 
-      const label = analysis.detectedSign ?? "Unknown";
-      const conf = typeof analysis.confidence === "number" ? analysis.confidence : 0;
-      const textOut =
-        `${label} (${Math.round(conf * 100)}%)\n\n` +
-        (analysis.reasoning || "") +
-        (analysis.correction ? `\n\nCorrection: ${analysis.correction}` : "");
+      const label = typeof analysis?.detectedSign === "string" ? analysis.detectedSign : null;
+      const conf = typeof analysis?.confidence === "number" ? analysis.confidence : 0;
 
-      lastGood = { text: textOut, confidence: conf };
+      // ✅ what the UI should show (and what you should feed to ElevenLabs)
+      const translationText = label || ""; // "" when no sign
+
+      lastGood = { text: translationText, confidence: conf };
 
       ws.send(JSON.stringify({
         type: "result",
-        text: textOut,
+        text: translationText,      // ✅ only the translation
         confidence: conf,
-        candidates: analysis.candidates,
-        stageA: analysis.stageA
-      }));
 
+        // optional debug payload for judges/dev
+        analysis: {
+          detectedSign: analysis?.detectedSign ?? null,
+          confidence: conf,
+          candidates: analysis?.candidates,
+          stageA: analysis?.stageA,
+          // keep reasoning if you want it accessible but not shown
+          reasoning: analysis?.reasoning,
+          correction: analysis?.correction
+        }
+      }));
         } catch (e) {
       console.error("WS handler error:", e);
 
@@ -258,27 +264,17 @@ wss.on("connection", (ws) => {
       if (isRateLimit) {
         cooldownUntil = Date.now() + COOLDOWN_MS;
 
-        if (lastGood) {
-          ws.send(JSON.stringify({
-            type: "partial",
-            text: lastGood.text + "\n\n(Throttling to respect Gemini limits…)",
-            confidence: lastGood.confidence,
-            skipped: true,
-            throttled: true
-          }));
-        } else {
-          ws.send(JSON.stringify({
-            type: "partial",
-            text: "Gemini is rate-limiting right now — throttling for a few seconds…",
-            confidence: 0,
-            skipped: true,
-            throttled: true
-          }));
-        }
+        ws.send(JSON.stringify({
+          type: "partial",
+          text: lastGood ? lastGood.text : "",
+          confidence: lastGood ? lastGood.confidence : 0,
+          skipped: true,
+          throttled: true,
+          status: "throttling"
+        }));
 
         return;
       }
-
       // Non-rate-limit errors: report normally
       ws.send(JSON.stringify({ type: "error", message: msg }));
     } finally {

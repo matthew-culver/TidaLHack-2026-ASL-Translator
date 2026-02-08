@@ -734,6 +734,9 @@ function AppScreen({ onHome, logoImg }) {
         if (msg.throttled) pushEvent("Throttling (Gemini limits)");
         if (typeof msg.confidence === "number") setConfidence(msg.confidence);
         statsRef.current.lastPartialAt = performance.now();
+        if (msg.type === "result" && msg.text && msg.text.trim()) {
+          playTTS(msg.text);
+        }
       } else if (msg.type === "error") {
         setOutputText(`Live error: ${msg.message || "Unknown error"}`);
         pushEvent("Backend error ❌");
@@ -800,6 +803,37 @@ function AppScreen({ onHome, logoImg }) {
       showToast("Copied");
     } catch {
       showToast("Copy failed");
+    }
+  };
+
+  const playTTS = async (text) => {
+    if (!text || !text.trim()) return;
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          text: text,
+          voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel voice
+        })
+      });
+      
+      if (!response.ok) {
+        console.error('TTS failed:', await response.text());
+        return;
+      }
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      
+      audio.onended = () => URL.revokeObjectURL(audioUrl);
+      await audio.play();
+      
+      pushEvent("🔊 Played audio");
+    } catch (err) {
+      console.error('TTS error:', err);
     }
   };
 
