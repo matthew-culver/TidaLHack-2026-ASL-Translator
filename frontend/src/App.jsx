@@ -645,7 +645,7 @@ function AppScreen({ onHome, logoImg }) {
         return;
       }
 
-      const FPS = 6;
+      const FPS = 3;
       const intervalMs = Math.round(1000 / FPS);
 
       const loop = () => {
@@ -655,7 +655,7 @@ function AppScreen({ onHome, logoImg }) {
         const w = video.videoWidth || 640;
         const h = video.videoHeight || 480;
 
-        const targetW = 320;
+        const targetW = 240;
         const targetH = Math.max(1, Math.round((h / w) * targetW));
 
         canvas.width = targetW;
@@ -663,7 +663,7 @@ function AppScreen({ onHome, logoImg }) {
 
         ctx.drawImage(video, 0, 0, targetW, targetH);
 
-        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.6);
+        const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.45);
         const base64 = jpegDataUrl.split(",")[1];
 
         const now = performance.now();
@@ -706,6 +706,7 @@ function AppScreen({ onHome, logoImg }) {
 
       if (msg.type === "partial" || msg.type === "result") {
         setOutputText(msg.text ?? "");
+        if (msg.throttled) pushEvent("Throttling (Gemini limits)");
         if (typeof msg.confidence === "number") setConfidence(msg.confidence);
         statsRef.current.lastPartialAt = performance.now();
       } else if (msg.type === "error") {
