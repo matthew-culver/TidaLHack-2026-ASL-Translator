@@ -222,9 +222,7 @@ Conversation context (previous detected signs): ${contextSigns || "(none)"}
   };
 }
 
-/**
- * Analyze ASL sign from video frames using Gemini's multimodal capabilities
- */
+// Analyze ASL sign from video frames using Gemini's multimodal capabilities
 async function analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary, sessionKey) {
   const apiKey = API_KEYS[currentKeyIndex];
   const model = getModelForKey(apiKey);  
@@ -324,7 +322,7 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
   }).join('\n---');
 
 
-  // THE PROMPT - This is where the magic happens
+  // THE PROMPT 
   const prompt = `You are an expert ASL interpreter analyzing webcam frames for a hackathon demo showcasing Gemini's spatial reasoning and temporal analysis.
 
 VOCABULARY (detect from these only):
@@ -417,14 +415,14 @@ CRITICAL:
     
     console.log(`✅ Detected: ${analysis.detectedSign} (${Math.round(analysis.confidence * 100)}%)`);
     analysis.candidates = candidates.map(s => s.signName);
-    analysis.stageA = features; // optional, but cool for judges
+    analysis.stageA = features;
 
     return analysis;
     
   } catch (error) {
     console.error('❌ Gemini API error:', error);
     
-    // ✅ Check if it's a quota/rate limit error
+    // Check if quota/rate limit error
     const msg = String(error?.message || error);
     const isQuotaError = 
       msg.includes('429') ||

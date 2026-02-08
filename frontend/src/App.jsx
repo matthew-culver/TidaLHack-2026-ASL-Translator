@@ -2,6 +2,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
+const BACKEND_URL = "http://138.197.97.151:3001";
 
 // ✅ BLUE THEME
 import bgBlue from "./assets/bg.png";
@@ -26,7 +27,7 @@ async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
   const form = new FormData();
   form.append("video", fileOrBlob, filename);
 
-  const res = await fetch("/api/translate/video", { method: "POST", body: form });
+  const res = await fetch(`${BACKEND_URL}/api/translate/video`, { method: "POST", body: form });
 
   if (!res.ok) {
     const txt = await res.text();
@@ -736,10 +737,7 @@ function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
     }
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const wsHost =
-      location.hostname === "localhost" && location.port === "5173"
-        ? `${location.hostname}:3001`
-        : location.host;
+    const wsHost = "138.197.97.151:3001"; 
 
     const ws = new WebSocket(`${proto}://${wsHost}/ws`);
     wsRef.current = ws;
@@ -850,6 +848,11 @@ function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
         if (msg.throttled) pushEvent("Throttling (Gemini limits)");
         if (typeof msg.confidence === "number") setConfidence(msg.confidence);
         statsRef.current.lastPartialAt = performance.now();
+
+        // ✅ speak only on real "result" messages that have actual text
+        if (msg.type === "result" && msg.text && msg.text.trim()) {
+          playTTS(msg.text);
+        }
       } else if (msg.type === "error") {
         setOutputText(`Live error: ${msg.message || "Unknown error"}`);
         pushEvent("Backend error ❌");
@@ -918,6 +921,37 @@ function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
       showToast("Copy failed");
     }
   };
+  const playTTS = async (text) => {
+    if (!text || !text.trim()) return;
+    
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          text: text,
+          voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel voice
+        })
+      });
+      
+      if (!response.ok) {
+        console.error('TTS failed:', await response.text());
+        return;
+      }
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      
+      audio.onended = () => URL.revokeObjectURL(audioUrl);
+      await audio.play();
+      
+      pushEvent("🔊 Played audio");
+    } catch (err) {
+      console.error('TTS error:', err);
+    }
+  };
+
 
   const handleHome = () => {
     if (isLiveTranslating) stopLiveTranslation();
