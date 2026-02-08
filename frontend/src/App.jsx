@@ -705,7 +705,17 @@ function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
     else enableCamera();
   };
 
-  const startLiveTranslation = () => {
+  const startLiveTranslation = async () => {
+    // ✅ Unlock audio autoplay on the same user gesture
+    try {
+      const a = new Audio();
+      a.muted = true;
+      await a.play();
+      a.pause();
+      a.src = "";
+    } catch (e) {
+      console.warn("Audio unlock failed:", e);
+    }
     if (!livePreviewRef.current || !canvasRef.current) {
       setOutputText("Enable camera first.");
       return;
@@ -921,37 +931,69 @@ function AppScreen({ onHome, assets, toggleTheme, isOrange, textColor }) {
       showToast("Copy failed");
     }
   };
-  const playTTS = async (text) => {
-    if (!text || !text.trim()) return;
-    
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text: text,
-          voiceId: '21m00Tcm4TlvDq8ikWAM' // Rachel voice
-        })
-      });
-      
-      if (!response.ok) {
-        console.error('TTS failed:', await response.text());
-        return;
-      }
-      
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      
-      audio.onended = () => URL.revokeObjectURL(audioUrl);
-      await audio.play();
-      
-      pushEvent("🔊 Played audio");
-    } catch (err) {
-      console.error('TTS error:', err);
-    }
-  };
+    // --- TTS autoplay unlock ---
+    const [audioEnabled, setAudioEnabled] = useState(false);
+    const audioRef = useRef(null);
+    const lastSpokenRef = useRef("");
 
+    const enableAudio = async () => {
+      setAudioEnabled(true);
+      try {
+        // prime the audio system (must be user-initiated)
+        const a = new Audio();
+        a.muted = true;
+        await a.play().catch(() => {});
+        a.pause();
+      } catch {}
+      pushEvent("🔊 Audio enabled");
+      showToast("Audio enabled");
+    };
+
+    const playTTS = async (text) => {
+      if (!audioEnabled) return; // ✅ required for autoplay rules
+      if (!text || !text.trim()) return;
+
+      const clean = text.trim();
+      if (clean === lastSpokenRef.current) return; // ✅ dedupe repeats
+      lastSpokenRef.current = clean;
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: clean,
+            voiceId: "21m00Tcm4TlvDq8ikWAM",
+          }),
+        });
+
+        if (!response.ok) {
+          const err = await response.text();
+          console.error("TTS failed:", err);
+          pushEvent("🔇 TTS failed");
+          showToast("TTS failed");
+          return;
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        if (!audioRef.current) audioRef.current = new Audio();
+        const audio = audioRef.current;
+
+        audio.src = audioUrl;
+        audio.onended = () => URL.revokeObjectURL(audioUrl);
+
+        await audio.play().catch((e) => {
+          console.error("audio.play() failed:", e);
+        });
+
+        pushEvent("🔊 Played audio");
+      } catch (err) {
+        console.error("TTS error:", err);
+        pushEvent("TTS error ❌");
+      }
+    };
 
   const handleHome = () => {
     if (isLiveTranslating) stopLiveTranslation();
