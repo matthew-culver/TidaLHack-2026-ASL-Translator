@@ -24,6 +24,41 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' })); // Large limit for base64 images
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.post("/api/translate/frames", async (req, res) => {
+  try {
+    const frames = req.body.frames;
+    if (!Array.isArray(frames) || frames.length === 0) {
+      return res.status(400).json({ error: "frames[] required" });
+    }
+
+    const sessionId = `upload-${Date.now()}`;
+    const vocabulary = await getVocabulary();
+
+    const currentFrame = frames[frames.length - 1];
+    const prev = frames.slice(0, -1).slice(-2);
+
+    const analysis = await analyzeASLSign(
+      currentFrame,
+      prev,
+      [],        // conversationContext
+      vocabulary,
+      sessionId
+    );
+
+    const label = analysis.detectedSign ?? "Unknown";
+    const conf = typeof analysis.confidence === "number" ? analysis.confidence : 0;
+
+    res.json({
+      text: `${label} (${Math.round(conf * 100)}%)\n\n${analysis.reasoning || ""}`,
+      confidence: conf,
+      analysis
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // Multer setup for handling video uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -34,7 +69,7 @@ app.post("/api/translate/video", upload.single("video"), async (req, res) => {
 
   // Placeholder response for now
   res.json({
-    text: "Got your video ✅ (placeholder translation)",
+    text: "Video received ✅  (live mode uses Gemini in real time — use the camera button)",
     filename: req.file.originalname,
     size: req.file.size,
   });
@@ -97,6 +132,8 @@ wss.on("connection", (ws) => {
     crypto.createHash("sha1").update(b64).digest("hex");
 
   ws.on("message", async (msg) => {
+    let locked = false;
+
     try {
       const data = JSON.parse(msg.toString());
       if (data.type !== "frame") return;
@@ -107,58 +144,39 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      // 1) Dedupe: same exact JPEG repeatedly → reuse last result
       const h = hashBase64(base64);
       const now = Date.now();
 
+      // Dedupe
       if (lastHash && lastHash === h && (now - lastHashAt) < DUP_TTL_MS) {
         if (lastGood) {
-          ws.send(JSON.stringify({
-            type: "result",
-            text: lastGood.text,
-            confidence: lastGood.confidence,
-            skipped: true
-          }));
+          ws.send(JSON.stringify({ type: "result", text: lastGood.text, confidence: lastGood.confidence, skipped: true }));
         }
         return;
       }
       lastHash = h;
       lastHashAt = now;
 
-      // 2) Rate limit: don’t call Gemini too often
+      // Rate limit
       if ((now - lastGeminiAt) < MIN_CALL_MS) {
-        // optional: still echo lastGood to feel responsive
         if (lastGood) {
-          ws.send(JSON.stringify({
-            type: "partial",
-            text: lastGood.text,
-            confidence: lastGood.confidence,
-            skipped: true
-          }));
+          ws.send(JSON.stringify({ type: "partial", text: lastGood.text, confidence: lastGood.confidence, skipped: true }));
         }
         return;
       }
 
-      // 3) In-flight lock: never stack calls
+      // Lock
       if (inFlight) return;
       inFlight = true;
+      locked = true;
       lastGeminiAt = now;
 
       const imageFrame = `data:image/jpeg;base64,${base64}`;
       const prev = previousFrames.slice(-MAX_PREV_FRAMES);
 
-      // vocab is cached in mongodb.js (30s TTL), so this is fine
       const vocabulary = await getVocabulary();
+      const analysis = await analyzeASLSign(imageFrame, prev, conversationContext, vocabulary, sessionId);
 
-      const analysis = await analyzeASLSign(
-        imageFrame,
-        prev,
-        conversationContext,
-        vocabulary,
-        sessionId
-      );
-
-      // update buffers
       previousFrames.push(imageFrame);
       if (previousFrames.length > MAX_FRAME_BUFFER) previousFrames = previousFrames.slice(-MAX_FRAME_BUFFER);
 
@@ -167,26 +185,29 @@ wss.on("connection", (ws) => {
         if (conversationContext.length > 12) conversationContext = conversationContext.slice(-12);
       }
 
-      // save (optional, for trail / history)
-      await saveTranslation(sessionId, {
-        timestamp: new Date(),
-        detectedSign: analysis.detectedSign,
-        confidence: analysis.confidence,
-        reasoning: analysis.reasoning,
-        handShape: analysis.handShape,
-        handLocation: analysis.handLocation,
-        handOrientation: analysis.handOrientation,
-        motion: analysis.motion,
-        spatialAnalysis: analysis.spatialAnalysis,
-        temporalAnalysis: analysis.temporalAnalysis,
-        contextRelevance: analysis.contextRelevance,
-        correction: analysis.correction,
-        alternativeSigns: analysis.alternativeSigns,
-        differentiationNotes: analysis.differentiationNotes,
-        frameCount: prev.length + 1
-      });
+      // Save should NOT be allowed to kill live demo
+      try {
+        await saveTranslation(sessionId, {
+          timestamp: new Date(),
+          detectedSign: analysis.detectedSign,
+          confidence: analysis.confidence,
+          reasoning: analysis.reasoning,
+          handShape: analysis.handShape,
+          handLocation: analysis.handLocation,
+          handOrientation: analysis.handOrientation,
+          motion: analysis.motion,
+          spatialAnalysis: analysis.spatialAnalysis,
+          temporalAnalysis: analysis.temporalAnalysis,
+          contextRelevance: analysis.contextRelevance,
+          correction: analysis.correction,
+          alternativeSigns: analysis.alternativeSigns,
+          differentiationNotes: analysis.differentiationNotes,
+          frameCount: prev.length + 1
+        });
+      } catch (e) {
+        console.warn("saveTranslation failed:", e.message);
+      }
 
-      // format a fast-to-read message
       const label = analysis.detectedSign ?? "Unknown";
       const conf = typeof analysis.confidence === "number" ? analysis.confidence : 0;
       const textOut =
@@ -208,10 +229,9 @@ wss.on("connection", (ws) => {
       console.error("WS handler error:", e);
       ws.send(JSON.stringify({ type: "error", message: e.message }));
     } finally {
-      inFlight = false;
+      if (locked) inFlight = false;
     }
   });
-
   ws.on("close", () => console.log("❌ WS client disconnected"));
 });
 
