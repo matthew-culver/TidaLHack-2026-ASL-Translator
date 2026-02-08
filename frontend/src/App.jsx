@@ -1,111 +1,52 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
-/**
- * SIGN – Combined style
- * - Title screen uses your title.jpeg sketch as the full background.
- *   The chest area is an invisible (but clickable) hotspot.
- * - Main page uses a clean, black UI (no sketch background) with upload + record.
- *
- * Setup (Vite):
- * 1) Create: src/assets/
- * 2) Put your image there and name it exactly:
- *    - src/assets/title.jpeg
- */
+import bgImg from "./assets/bg.png";
 
-import titleImg from "./assets/title.jpeg";
-
-//send video file to backend and get translation response (placeholder for now)
-async function sendVideoToBackend(file) {
+// send video file/blob to backend
+async function sendVideoToBackend(fileOrBlob, filename = "recording.webm") {
   const form = new FormData();
-  form.append("video", file);
+  form.append("video", fileOrBlob, filename);
 
-  const res = await fetch("/api/translate", {
-    method: "POST",
-    body: form,
-  });
+  const res = await fetch("/api/translate/video", { method: "POST", body: form });
 
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(txt || "Upload failed");
   }
-
   return res.json();
 }
 
-
 function PageFrame({ children }) {
+  // no bg-black here; background is handled by FixedBackground
+  return <div className="min-h-screen w-full relative">{children}</div>;
+}
+
+function FixedBackground() {
   return (
-    <div className="min-h-screen w-full bg-black text-neutral-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-6xl">{children}</div>
-    </div>
+    <>
+      {/* fallback to prevent any white flash if image is still loading */}
+      <div className="fixed inset-0 -z-20 bg-black" />
+      <div
+        className="fixed inset-0 -z-10"
+        style={{
+          backgroundImage: `url(${bgImg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+        }}
+      />
+    </>
   );
 }
 
-function ImageStage({ src, children }) {
-  // Your sketch is ~4:3
-  return (
-    <div className="relative w-full aspect-[4/3] overflow-hidden rounded-3xl border border-neutral-800 bg-black shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
-      <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
-      {children}
-    </div>
-  );
-}
-
-function InvisibleHotspot({ label, rect, onClick }) {
-  const style = {
-    left: `${rect.left}%`,
-    top: `${rect.top}%`,
-    width: `${rect.width}%`,
-    height: `${rect.height}%`,
-  };
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="absolute bg-transparent focus:outline-none focus:ring-2 focus:ring-cyan-300/40 rounded-2xl"
-      style={style}
-    />
-  );
-}
-
-const HOTSPOTS = {
-  // Adjust if needed: percentage rect over the chest area in title.jpeg
-  titleEnter: { left: 41.5, top: 35.0, width: 17.0, height: 14.0 },
-};
-
-function TitleScreen({ onEnter }) {
-  return (
-    <ImageStage src={titleImg}>
-      {/* Invisible but clickable */}
-      <InvisibleHotspot label="Enter SIGN" rect={HOTSPOTS.titleEnter} onClick={onEnter} />
-
-      {/* Optional helper text (remove if you want 100% clean title) */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/70">
-        Click the chest to start
-      </div>
-    </ImageStage>
-  );
-}
-
-function NeonText({ children, className = "" }) {
-  return (
-    <div
-      className={
-        "text-cyan-200 drop-shadow-[0_0_14px_rgba(34,211,238,0.18)] " + className
-      }
-    >
-      {children}
-    </div>
-  );
-}
-
+/** Glass UI helpers **/
 function Card({ children, className = "" }) {
   return (
     <div
       className={
-        "rounded-3xl border border-neutral-800 bg-neutral-950/70 shadow-[0_0_0_1px_rgba(255,255,255,0.04)] " +
+        "overflow-hidden rounded-3xl border border-white/30 bg-white/18 backdrop-blur-xl " +
+        "shadow-[0_18px_55px_rgba(0,0,0,0.22)] " +
         className
       }
     >
@@ -114,44 +55,188 @@ function Card({ children, className = "" }) {
   );
 }
 
-function AppScreen({ onBack }) {
+function Toast({ show, text }) {
+  return (
+    <AnimatePresence>
+      {show ? (
+        <motion.div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999]"
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 16, scale: 0.98 }}
+          transition={{ duration: 0.18 }}
+        >
+          <div className="rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl px-4 py-2 shadow-[0_18px_55px_rgba(0,0,0,0.30)] text-slate-900 text-sm">
+            {text}
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+/** More dramatic flow-in + zoom-out exit **/
+const panelFlow = {
+  initial: { opacity: 0, scale: 0.74, y: 70, rotateX: 14, filter: "blur(12px)" },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    rotateX: 0,
+    filter: "blur(0px)",
+    transition: { type: "spring", stiffness: 220, damping: 15, mass: 0.6 },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.82,
+    y: 40,
+    rotateX: 10,
+    filter: "blur(10px)",
+    transition: { duration: 0.22, ease: "easeInOut" },
+  },
+};
+
+const headerFlow = {
+  initial: { opacity: 0, scale: 0.9, y: 20, filter: "blur(8px)" },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { type: "spring", stiffness: 260, damping: 18, mass: 0.7 },
+  },
+  exit: { opacity: 0, scale: 0.92, y: 12, filter: "blur(8px)", transition: { duration: 0.18 } },
+};
+
+const stagger = {
+  initial: {},
+  animate: { transition: { staggerChildren: 0.12, delayChildren: 0.06 } },
+  exit: { transition: { staggerChildren: 0.06, staggerDirection: -1 } },
+};
+
+function HomeScreen({ onStart }) {
+  return (
+    <div className="relative min-h-screen w-full flex items-center justify-center p-6">
+      <motion.button
+        type="button"
+        onClick={onStart}
+        initial={{ opacity: 0, scale: 0.9, y: 18, filter: "blur(8px)" }}
+        animate={{
+          opacity: 1,
+          scale: 1,
+          y: 0,
+          filter: "blur(0px)",
+          transition: { type: "spring", stiffness: 220, damping: 16, mass: 0.7 },
+        }}
+        exit={{ opacity: 0, scale: 0.92, y: 12, filter: "blur(8px)", transition: { duration: 0.18 } }}
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: 0.98 }}
+        className={
+          "rounded-3xl border border-white/35 bg-white/14 backdrop-blur-xl " +
+          "shadow-[0_24px_80px_rgba(0,0,0,0.35)] px-10 py-6"
+        }
+        aria-label="Start"
+        title="Start"
+      >
+        <div className="text-4xl sm:text-5xl tracking-[0.22em] uppercase font-semibold text-slate-900">
+          <span className="font-mono italic drop-shadow-[0_14px_28px_rgba(255,255,255,0.6)]">
+            Start
+          </span>
+        </div>
+        <div className="mt-3 text-xs text-slate-900/65 tracking-widest">USign Console</div>
+      </motion.button>
+    </div>
+  );
+}
+
+function AppScreen({ onHome, logoImg }) {
   const [videoSrc, setVideoSrc] = useState("");
   const [mode, setMode] = useState("idle"); // idle | camera
-  const [isRecording, setIsRecording] = useState(false);
 
   const [confidence, setConfidence] = useState(0.98);
   const [outputText, setOutputText] = useState("");
+
+  const [isSending, setIsSending] = useState(false);
+  const [events, setEvents] = useState([]);
 
   const fileInputRef = useRef(null);
   const livePreviewRef = useRef(null);
 
   const streamRef = useRef(null);
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
 
-  const confidenceLabel = useMemo(() => `${Math.round(confidence * 100)}%`, [confidence]);
+  const confidencePct = Math.round(confidence * 100);
+  const confidenceLabel = useMemo(() => `${confidencePct}%`, [confidencePct]);
 
+  // Activity popup
+  const [showActivity, setShowActivity] = useState(false);
 
+  // WS + live translation state
+  const [isLiveTranslating, setIsLiveTranslating] = useState(false);
+  const isLiveRef = useRef(false);
+
+  useEffect(() => {
+    isLiveRef.current = isLiveTranslating;
+  }, [isLiveTranslating]);
+
+  const wsRef = useRef(null);
+  const canvasRef = useRef(null);
+  const liveLoopRef = useRef(null);
+
+  // performance stats (shown in activity)
+  const statsRef = useRef({
+    framesSent: 0,
+    lastSentAt: 0,
+    fpsEMA: 0,
+    lastPartialAt: 0,
+  });
+  const [uiStats, setUiStats] = useState({ fps: 0, frames: 0 });
+
+  // Camera enabled derived state
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+
+  // toast
+  const [toast, setToast] = useState({ show: false, text: "" });
+  const toastTimerRef = useRef(null);
+
+  const showToast = (text) => {
+    setToast({ show: true, text });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast({ show: false, text: "" }), 1200);
+  };
+
+  const pushEvent = (label) =>
+    setEvents((prev) => [{ label, ts: new Date().toLocaleTimeString() }, ...prev].slice(0, 10));
+
+  // Keep cameraEnabled in sync with the stream
+  useEffect(() => {
+    const hasLiveTrack =
+      !!streamRef.current &&
+      streamRef.current.getTracks().some((t) => t.readyState === "live");
+    setCameraEnabled(hasLiveTrack && mode === "camera");
+  }, [mode]);
+
+  // attach stream after render
   useEffect(() => {
     if (mode !== "camera") return;
     if (!livePreviewRef.current) return;
     if (!streamRef.current) return;
-
     livePreviewRef.current.srcObject = streamRef.current;
-
-    // Some browsers need an explicit play() to render frames
     livePreviewRef.current.play?.().catch(() => {});
   }, [mode, videoSrc]);
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
-      if (videoSrc) URL.revokeObjectURL(videoSrc);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // update UI stats periodically (for activity panel)
+  useEffect(() => {
+    const id = setInterval(() => {
+      const s = statsRef.current;
+      setUiStats({ fps: Math.round(s.fpsEMA * 10) / 10, frames: s.framesSent });
+    }, 600);
+    return () => clearInterval(id);
   }, []);
 
   const pickUpload = async (e) => {
@@ -161,250 +246,660 @@ function AppScreen({ onBack }) {
     if (videoSrc) URL.revokeObjectURL(videoSrc);
     const url = URL.createObjectURL(file);
     setVideoSrc(url);
+    setMode("idle");
 
-    // show preview immediately (keep this)
-    setConfidence(0.98);
+    setIsSending(true);
     setOutputText("Uploading…");
+    pushEvent(`Selected upload: ${file.name}`);
 
-    // NEW: send to backend
     try {
-      const data = await sendVideoToBackend(file);
+      pushEvent("Sending to backend…");
+      const data = await sendVideoToBackend(file, file.name);
       setOutputText(data.text || "(No text returned)");
+      pushEvent("Translation received ✅");
+      showToast("Translation received");
     } catch (err) {
       setOutputText(`Upload error: ${err.message}`);
+      pushEvent("Upload failed ❌");
+      showToast("Upload failed");
+    } finally {
+      setIsSending(false);
     }
 
     e.target.value = "";
   };
 
+  const stopLiveTranslation = () => {
+  isLiveRef.current = false;
+  setIsLiveTranslating(false);
+
+  if (liveLoopRef.current) {
+    clearTimeout(liveLoopRef.current);
+    liveLoopRef.current = null;
+  }
+  if (wsRef.current) {
+    try { wsRef.current.close(); } catch {}
+    wsRef.current = null;
+  }
+
+  setOutputText("Live translation stopped.");
+  pushEvent("Live translation stopped");
+  showToast("Live translation stopped");
+};
+
+
+  const disableCamera = () => {
+    if (isLiveTranslating) stopLiveTranslation();
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (livePreviewRef.current) livePreviewRef.current.srcObject = null;
+
+    setMode("idle");
+    setCameraEnabled(false);
+    pushEvent("Camera disabled");
+    showToast("Camera disabled");
+  };
+
   const enableCamera = async () => {
-    // Switch UI from recorded playback back to live preview
     if (videoSrc) {
       URL.revokeObjectURL(videoSrc);
       setVideoSrc("");
     }
 
-    // If we have a stream but it’s dead, discard it
     if (streamRef.current) {
-      const hasLiveTrack = streamRef.current
-        .getTracks()
-        .some((t) => t.readyState === "live");
-
-      if (!hasLiveTrack) {
-        streamRef.current = null;
-      }
+      const hasLiveTrack = streamRef.current.getTracks().some((t) => t.readyState === "live");
+      if (!hasLiveTrack) streamRef.current = null;
     }
 
     try {
       const stream =
         streamRef.current ??
         (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
-
       streamRef.current = stream;
+
       setMode("camera");
-      setOutputText("Camera enabled. You can start recording now.");
+      setCameraEnabled(true);
+      pushEvent("Camera enabled");
+      showToast("Camera enabled");
     } catch (err) {
       console.error(err);
-      setOutputText("Could not access camera/microphone. Check permissions and try again.");
       setMode("idle");
+      setCameraEnabled(false);
+      setOutputText("Could not access camera/microphone. Check permissions and try again.");
+      pushEvent("Camera error ❌");
+      showToast("Camera permission error");
     }
   };
 
+  const toggleCamera = () => {
+    if (cameraEnabled) disableCamera();
+    else enableCamera();
+  };
 
-  const startRecording = () => {
-    if (!streamRef.current) {
-      setOutputText("Enable camera first.");
+  const startLiveTranslation = () => {
+  if (!livePreviewRef.current || !canvasRef.current) {
+    setOutputText("Enable camera first.");
+    return;
+  }
+  if (!cameraEnabled) {
+    setOutputText("Enable camera first.");
+    return;
+  }
+  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    // already running
+    return;
+  }
+
+  // UI feedback immediately (so it never feels like a dead click)
+  setOutputText("Connecting to live translation…");
+  pushEvent("Connecting to live translation…");
+  showToast("Connecting…");
+
+  statsRef.current.framesSent = 0;
+  statsRef.current.fpsEMA = 0;
+  statsRef.current.lastSentAt = 0;
+  statsRef.current.lastPartialAt = 0;
+
+  // ensure any old loop/socket is cleaned up
+  if (liveLoopRef.current) {
+    clearTimeout(liveLoopRef.current);
+    liveLoopRef.current = null;
+  }
+  if (wsRef.current) {
+    try { wsRef.current.close(); } catch {}
+    wsRef.current = null;
+  }
+
+  const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+
+  // If running on Vite dev server (5173), connect WS to backend (3001).
+  const wsHost =
+    location.hostname === "localhost" && location.port === "5173"
+      ? `${location.hostname}:3001`
+      : location.host;
+
+  const ws = new WebSocket(`${proto}://${wsHost}/ws`);
+
+  wsRef.current = ws;
+
+  // If it never connects, surface that to the UI
+  const connectTimeout = setTimeout(() => {
+    if (wsRef.current === ws && ws.readyState !== WebSocket.OPEN) {
+      setOutputText("Live translation failed to connect (timeout). Check WS route (/ws) and server logs.");
+      pushEvent("WS connect timeout ❌");
+      showToast("WS timeout");
+      try { ws.close(); } catch {}
+    }
+  }, 4000);
+
+  ws.onopen = async () => {
+    clearTimeout(connectTimeout);
+
+    isLiveRef.current = true;
+    setIsLiveTranslating(true);
+    setOutputText("Live translation started…");
+    pushEvent("Live translation started");
+    showToast("Live started");
+
+    const video = livePreviewRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+    // Wait until the video has dimensions (prevents 0x0 streams on some browsers)
+    const waitForVideoReady = async () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+      // try a few frames
+      for (let i = 0; i < 20; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        if (video.videoWidth > 0 && video.videoHeight > 0) return true;
+      }
+      return false;
+    };
+
+    const ready = await waitForVideoReady();
+    if (!ready) {
+      setOutputText("Camera stream not ready yet (no video dimensions). Try again after a second.");
+      pushEvent("Video not ready ❌");
+      showToast("Video not ready");
+      stopLiveTranslation();
       return;
     }
 
+    const FPS = 10;
+    const intervalMs = Math.round(1000 / FPS);
+
+    const loop = () => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      if (!isLiveRef.current) return;
+
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+
+      const targetW = 320;
+      const targetH = Math.max(1, Math.round((h / w) * targetW));
+
+      canvas.width = targetW;
+      canvas.height = targetH;
+
+      ctx.drawImage(video, 0, 0, targetW, targetH);
+
+      const jpegDataUrl = canvas.toDataURL("image/jpeg", 0.6);
+      const base64 = jpegDataUrl.split(",")[1];
+
+      const now = performance.now();
+      const s = statsRef.current;
+      if (s.lastSentAt) {
+        const instFps = 1000 / Math.max(1, now - s.lastSentAt);
+        s.fpsEMA = s.fpsEMA ? s.fpsEMA * 0.8 + instFps * 0.2 : instFps;
+      }
+      s.lastSentAt = now;
+      s.framesSent += 1;
+
+      // ✅ Send BOTH names to match either backend expectation
+      const payload = {
+        type: "frame",
+        imageFrame: base64,
+        image: base64,
+      };
+
+      try {
+        wsRef.current.send(JSON.stringify(payload));
+      } catch (e) {
+        console.error("WS send failed", e);
+        setOutputText("Live translation send failed. Connection may have dropped.");
+        pushEvent("WS send failed ❌");
+        showToast("Send failed");
+        stopLiveTranslation();
+        return;
+      }
+
+      liveLoopRef.current = setTimeout(loop, intervalMs);
+    };
+
+    loop();
+  };
+
+  ws.onmessage = (evt) => {
+    // Surface raw messages if parsing fails (helps debugging)
+    let msg;
     try {
-      chunksRef.current = [];
-      const recorder = new MediaRecorder(streamRef.current, {
-        mimeType: "video/webm;codecs=vp8,opus",
-      });
+      msg = JSON.parse(evt.data);
+    } catch {
+      console.warn("WS non-JSON message:", evt.data);
+      setOutputText(String(evt.data));
+      return;
+    }
 
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (evt) => {
-        if (evt.data && evt.data.size > 0) chunksRef.current.push(evt.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        const url = URL.createObjectURL(blob);
-        if (videoSrc) URL.revokeObjectURL(videoSrc);
-        setVideoSrc(url);
-        
-        if (livePreviewRef.current) {
-          livePreviewRef.current.srcObject = null;
-        }
-
-        setMode("idle");
-        setConfidence(0.98);
-        setOutputText("(Preview) Recorded video saved. Send this blob to your backend for translation.");
-      };
-
-      recorder.start(250);
-      setIsRecording(true);
-      setOutputText("Recording… perform the sign(s), then stop.");
-    } catch (err) {
-      console.error(err);
-      setOutputText("Recording failed. Your browser may not support MediaRecorder with this codec.");
+    if (msg.type === "partial" || msg.type === "result") {
+      setOutputText(msg.text ?? "");
+      if (typeof msg.confidence === "number") setConfidence(msg.confidence);
+      statsRef.current.lastPartialAt = performance.now();
+    } else if (msg.type === "error") {
+      setOutputText(`Live error: ${msg.message || "Unknown error"}`);
+      pushEvent("Backend error ❌");
+      showToast("Backend error");
+    } else {
+      // fall back: show something so it never looks dead
+      if (msg.text) setOutputText(msg.text);
     }
   };
 
-  const stopRecording = () => {
-    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
-    setIsRecording(false);
+  ws.onerror = (e) => {
+    clearTimeout(connectTimeout);
+    console.error("WS error", e);
+    setOutputText("Live translation connection error. Check WS route (/ws) and server logs.");
+    pushEvent("WS error ❌");
+    showToast("WS error");
   };
+
+  ws.onclose = (e) => {
+    clearTimeout(connectTimeout);
+    console.log("WS closed", e.code, e.reason);
+
+    // ✅ SHOW THIS IN UI so it’s not “silent”
+    if (isLiveRef.current) {
+      setOutputText(`Live translation disconnected (code ${e.code}${e.reason ? `: ${e.reason}` : ""}).`);
+      pushEvent("WS closed ❌");
+      showToast("Disconnected");
+    }
+
+    isLiveRef.current = false;
+    setIsLiveTranslating(false);
+
+    if (liveLoopRef.current) {
+      clearTimeout(liveLoopRef.current);
+      liveLoopRef.current = null;
+    }
+
+    if (wsRef.current === ws) wsRef.current = null;
+  };
+};
+
 
   const clear = () => {
     if (videoSrc) URL.revokeObjectURL(videoSrc);
     setVideoSrc("");
     setConfidence(0.98);
     setOutputText("");
+    pushEvent("Cleared");
+    showToast("Cleared");
   };
 
-  return (
-    <div className="w-full">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <NeonText className="text-2xl sm:text-3xl font-semibold">SIGN</NeonText>
-          <div className="text-neutral-400 text-sm mt-1">Upload a video or record live</div>
-        </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-2xl border border-neutral-800 px-4 py-2 hover:bg-neutral-900/50 text-sm"
-        >
-          Back
-        </button>
-      </div>
+  const copyText = async () => {
+    const text = outputText ?? "";
+    if (!text.trim()) return showToast("Nothing to copy");
 
-      <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Video */}
-        <Card className="lg:col-span-8 p-4 sm:p-6">
-          <div className="aspect-video rounded-2xl border border-neutral-800 bg-neutral-900/40 overflow-hidden flex items-center justify-center">
-            {videoSrc ? (
-              <video
-                key={videoSrc}
-                src={videoSrc}
-                controls
-                className="h-full w-full object-contain"
-              />
-            ) : mode === "camera" ? (
-              <video
-                key="live"
-                ref={livePreviewRef}
-                autoPlay
-                muted
-                playsInline
-                className="h-full w-full object-cover pointer-events-none"
-              />
-            ) : (
-              <div className="text-center px-6">
-                <NeonText className="text-lg font-semibold">Upload Media</NeonText>
-                <NeonText className="text-lg font-semibold">Record Video</NeonText>
-                <div className="mt-2 text-sm text-neutral-400">Use the buttons below</div>
-              </div>
-            )}
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      pushEvent("Copied translation ✅");
+      showToast("Copied");
+    } catch {
+      showToast("Copy failed");
+    }
+  };
+
+  const handleHome = () => {
+    if (isLiveTranslating) stopLiveTranslation();
+    if (cameraEnabled) disableCamera();
+    if (videoSrc) URL.revokeObjectURL(videoSrc);
+    onHome();
+  };
+
+  // ring gauge math
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  const dash = (confidencePct / 100) * c;
+
+  const iconBtn =
+    "rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl hover:bg-white/24 " +
+    "px-4 py-2 transition shadow-[0_10px_24px_rgba(0,0,0,0.14)]";
+
+  const smallBtn =
+    "text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 hover:bg-white/24 transition";
+
+  const primaryBtn =
+    "w-full h-[74px] rounded-2xl border border-white/35 bg-white/18 backdrop-blur-xl " +
+    "hover:bg-white/24 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 " +
+    "shadow-[0_10px_24px_rgba(0,0,0,0.12)] flex flex-col items-center justify-center";
+
+  const innerPane =
+    "rounded-2xl bg-white/10 shadow-[0_10px_24px_rgba(0,0,0,0.10)] overflow-hidden";
+
+  return (
+    <div className="relative min-h-screen w-full">
+      <canvas ref={canvasRef} className="hidden" />
+      <Toast show={toast.show} text={toast.text} />
+
+      <motion.div
+        className="relative z-10 h-[calc(100vh-1.5rem)] sm:h-[calc(100vh-2rem)] overflow-hidden rounded-[44px] p-3 sm:p-4 text-slate-900"
+        variants={stagger}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+      >
+        {/* HEADER */}
+        <motion.div variants={headerFlow} className="flex items-center justify-between gap-4">
+          <div className="leading-none">
+            <div className="text-3xl font-semibold tracking-wide">
+              <span className="font-serif italic tracking-wide text-sky-900 drop-shadow-[0_10px_22px_rgba(255,255,255,0.55)]">
+                USign
+              </span>
+            </div>
           </div>
 
-          <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={pickUpload} />
-
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="relative flex items-center gap-3">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-2xl border border-cyan-300/35 bg-cyan-300/5 hover:bg-cyan-300/10 px-4 py-3"
+              onClick={() => setShowActivity((v) => !v)}
+              className={iconBtn}
+              title="Activity"
+              aria-label="Activity"
             >
-              <NeonText className="font-semibold text-center">Upload video</NeonText>
+              <span className="text-slate-900/80 text-sm font-medium">Activity</span>
             </button>
 
-            <button
-              type="button"
-              onClick={enableCamera}
-              className="rounded-2xl border border-neutral-800 bg-neutral-900/40 hover:bg-neutral-900/60 px-4 py-3"
-            >
-              <div className="text-center">
-                <NeonText className="font-semibold">Enable camera</NeonText>
-                <div className="text-xs text-neutral-400 mt-0.5">Required for recording</div>
-              </div>
-            </button>
+            <AnimatePresence>
+              {showActivity && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                  transition={{ duration: 0.16 }}
+                  className="absolute right-0 top-12 w-[340px] sm:w-[380px] z-50"
+                >
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-slate-900/70">Activity</div>
+                      <button type="button" onClick={() => setShowActivity(false)} className={smallBtn}>
+                        Close
+                      </button>
+                    </div>
 
-            {isRecording ? (
-              <button
-                type="button"
-                onClick={stopRecording}
-                className="rounded-2xl border border-red-400/40 bg-red-400/10 hover:bg-red-400/15 px-4 py-3"
-              >
-                <div className="text-center">
-                  <div className="font-semibold text-red-200">Stop recording</div>
-                  <div className="text-xs text-neutral-300 mt-0.5">Save as preview</div>
+                    <div className="mt-3 rounded-2xl bg-white/10 p-3">
+                      <div className="flex items-center justify-between text-xs text-slate-900/70">
+                        <div>Frames sent</div>
+                        <div className="text-slate-900 font-semibold">{uiStats.frames}</div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+                        <div>Estimated FPS</div>
+                        <div className="text-slate-900 font-semibold">{uiStats.fps || 0}</div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-slate-900/70">
+                        <div>Status</div>
+                        <div className="text-slate-900 font-semibold">{isLiveTranslating ? "LIVE" : "Idle"}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2 max-h-[220px] overflow-auto pr-1">
+                      {events.length === 0 ? (
+                        <div className="text-slate-900/60 text-sm">No events yet.</div>
+                      ) : (
+                        events.map((e, idx) => (
+                          <div key={idx} className="flex items-start justify-between gap-3 text-sm">
+                            <div className="text-slate-900">{e.label}</div>
+                            <div className="text-slate-900/50 text-xs whitespace-nowrap">{e.ts}</div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Card>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button type="button" onClick={handleHome} className={iconBtn} title="Home" aria-label="Home">
+              {logoImg ? (
+                <img src={logoImg} alt="Logo" className="h-7 w-7 object-contain" draggable={false} />
+              ) : (
+                <span className="text-slate-900/80 text-sm font-medium">Home</span>
+              )}
+            </button>
+          </div>
+        </motion.div>
+
+        {/* MAIN GRID */}
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-3.25rem)]">
+          {/* LEFT PANEL */}
+          <motion.div variants={panelFlow} className="lg:col-span-8 h-full">
+            <Card className="h-full">
+              <div className="p-4 h-full flex flex-col min-h-0 gap-4">
+                <div
+                  className={"relative flex-none " + innerPane}
+                  style={{ height: "clamp(320px, 62vh, 520px)" }}
+                >
+
+                  <div className="absolute top-3 left-3 z-10">
+                    <div className="rounded-full border border-white/35 bg-white/20 backdrop-blur-xl px-3 py-1 text-xs">
+                      {mode === "camera" ? (
+                        <span className="text-emerald-900 font-semibold">LIVE</span>
+                      ) : videoSrc ? (
+                        <span className="text-indigo-900 font-semibold">PLAYBACK</span>
+                      ) : (
+                        <span className="text-slate-900/70 font-semibold">IDLE</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {isSending && (
+                      <motion.div
+                        className="absolute inset-0 bg-white/25 backdrop-blur-md flex items-center justify-center z-20"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                      >
+                        <div className="w-[70%] max-w-md">
+                          <div className="text-sm text-slate-900/80 mb-2 font-medium">Sending…</div>
+                          <div className="h-2 rounded-full bg-white/40 overflow-hidden">
+                            <motion.div
+                              className="h-full bg-sky-400/90"
+                              initial={{ x: "-60%" }}
+                              animate={{ x: "120%" }}
+                              transition={{ duration: 1.1, repeat: Infinity, ease: "linear" }}
+                              style={{ width: "40%" }}
+                            />
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {videoSrc ? (
+                    <video key={videoSrc} src={videoSrc} controls className="h-full w-full object-contain" />
+                  ) : mode === "camera" ? (
+                    <>
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none opacity-25"
+                        animate={{ backgroundPositionY: ["0%", "100%"] }}
+                        transition={{ duration: 2.0, repeat: Infinity, ease: "linear" }}
+                        style={{
+                          backgroundImage:
+                            "linear-gradient(to bottom, rgba(255,255,255,0.0), rgba(255,255,255,0.18), rgba(255,255,255,0.0))",
+                          backgroundSize: "100% 40%",
+                        }}
+                      />
+                      <video
+                        key="live"
+                        ref={livePreviewRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        className="h-full w-full object-cover pointer-events-none"
+                      />
+                    </>
+                  ) : (
+                    <div className="h-full w-full flex items-center justify-center text-center px-6">
+                      <div>
+                        <div className="text-black/90 font-semibold text-lg">Upload Media or Enable Camera</div>
+                        <div className="mt-2 text-sm text-black/70">Your preview appears here</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={startRecording}
-                disabled={mode !== "camera"}
-                className="rounded-2xl border border-cyan-300/35 bg-cyan-300/5 hover:bg-cyan-300/10 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3"
-                title={mode !== "camera" ? "Enable camera first" : "Start recording"}
-              >
-                <div className="text-center">
-                  <NeonText className="font-semibold">Start recording</NeonText>
-                  <div className="text-xs text-neutral-400 mt-0.5">
-                    {mode !== "camera" ? "Enable camera first" : "Record from webcam"}
+
+                <input ref={fileInputRef} type="file" accept="video/*" className="hidden" onChange={pickUpload} />
+
+                <div className="pt-4 border-t border-white/20">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch">
+                    <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={toggleCamera} className={primaryBtn}>
+                      <div className="font-semibold text-slate-900 text-center">{cameraEnabled ? "Disable camera" : "Enable camera"}</div>
+                      <div className="text-xs text-slate-900/70 text-center mt-1">{cameraEnabled ? "Stop preview" : "Live preview"}</div>
+                    </motion.button>
+
+                    <div className="relative group h-full">
+                      {isLiveTranslating ? (
+                        <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={stopLiveTranslation} className={primaryBtn}>
+                          <div className="font-semibold text-slate-900 text-center">Stop live translation</div>
+                          <div className="text-xs text-slate-900/70 text-center mt-1">End real-time processing</div>
+                        </motion.button>
+                      ) : (
+                        <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={startLiveTranslation} disabled={!cameraEnabled} className={primaryBtn}>
+                          <div className="font-semibold text-slate-900 text-center">Start live translation</div>
+                          <div className="text-xs text-slate-900/70 text-center mt-1">Real-time ASL → text</div>
+                        </motion.button>
+                      )}
+
+                      {!cameraEnabled && !isLiveTranslating && (
+                        <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2 -translate-y-full opacity-0 group-hover:opacity-100 transition">
+                          <div className="text-xs rounded-xl border border-white/35 bg-white/18 backdrop-blur-xl px-3 py-2 shadow-[0_10px_24px_rgba(0,0,0,0.18)] text-slate-900/80 whitespace-nowrap">
+                            enable camera to start live translation
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <motion.button whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="button" onClick={() => fileInputRef.current?.click()} className={primaryBtn}>
+                      <div className="font-semibold text-slate-900 text-center">Upload video</div>
+                      <div className="text-xs text-slate-900/70 text-center mt-1">Select from device</div>
+                    </motion.button>
                   </div>
                 </div>
-              </button>
-            )}
-          </div>
+              </div>
+            </Card>
+          </motion.div>
 
-          <div className="mt-3 flex items-center justify-between">
-            <div className="text-xs text-neutral-400">{mode === "camera" ? "Camera ready" : "Camera off"}</div>
-            <button
-              type="button"
-              onClick={clear}
-              className="text-xs rounded-xl border border-neutral-800 px-3 py-2 hover:bg-neutral-900/50"
-            >
-              Clear
-            </button>
-          </div>
-        </Card>
+          {/* RIGHT PANEL */}
+          <motion.div variants={panelFlow} className="lg:col-span-4 flex flex-col gap-4 h-full">
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-slate-900/70">Confidence</div>
+                  <div className="text-xl font-semibold text-slate-900">{confidenceLabel}</div>
+                </div>
 
-        {/* Right: Confidence + Text */}
-        <div className="lg:col-span-4 flex flex-col gap-6">
-          <Card className="p-5 sm:p-6">
-            <NeonText className="text-lg font-semibold">Confidence: {confidenceLabel}</NeonText>
-            <div className="mt-2 text-xs text-neutral-400">Placeholder until you wire up inference.</div>
-          </Card>
+                <svg width="78" height="78" viewBox="0 0 86 86">
+                  <circle cx="43" cy="43" r={r} stroke="rgba(15,23,42,0.15)" strokeWidth="10" fill="none" />
+                  <motion.circle
+                    cx="43"
+                    cy="43"
+                    r={r}
+                    stroke="#0EA5E9"
+                    strokeWidth="10"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={`${dash} ${c - dash}`}
+                    transform="rotate(-90 43 43)"
+                    initial={false}
+                    animate={{ strokeDasharray: `${dash} ${c - dash}` }}
+                    transition={{ type: "spring", stiffness: 120, damping: 18 }}
+                  />
+                </svg>
+              </div>
+              <div className="mt-2 text-xs text-slate-900/60">(Placeholder until inference is wired)</div>
+            </Card>
 
-          <Card className="p-5 sm:p-6 flex-1">
-            <NeonText className="text-lg font-semibold">Text</NeonText>
-            <div className="mt-3 rounded-2xl border border-neutral-800 bg-neutral-900/30 p-4 min-h-[180px]">
-              {outputText ? (
-                <div className="text-neutral-100 leading-relaxed text-sm">{outputText}</div>
-              ) : (
-                <div className="text-neutral-500 text-sm">Translation output will appear here…</div>
-              )}
-            </div>
-          </Card>
+            <Card className="p-4 flex-1 min-h-0">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-slate-900/70">Translation</div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={copyText} className={smallBtn}>Copy text</button>
+                  <button type="button" onClick={clear} className={smallBtn}>Clear</button>
+                </div>
+              </div>
+
+              <div className={"mt-4 flex-1 min-h-0 p-4 " + innerPane}>
+                <div className="h-full overflow-auto pr-1">
+                  {outputText ? (
+                    <div className="text-slate-900 leading-relaxed text-base whitespace-pre-wrap">{outputText}</div>
+                  ) : (
+                    <div className="text-slate-900/50 text-base">Translation output will appear here…</div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
 export default function SignApp() {
-  const [screen, setScreen] = useState("title"); // title | app
+  const [screen, setScreen] = useState("home");
 
   return (
     <PageFrame>
-      {screen === "title" ? (
-        <TitleScreen onEnter={() => setScreen("app")} />
-      ) : (
-        <AppScreen onBack={() => setScreen("title")} />
-      )}
+      {/* Background is always present behind both screens */}
+      <FixedBackground />
+
+      <AnimatePresence mode="wait" initial={false}>
+        {screen === "home" ? (
+          <motion.div
+            key="home"
+            className="relative min-h-screen w-full"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.18 } }}
+            exit={{ opacity: 0, transition: { duration: 0.18 } }}
+          >
+            <HomeScreen onStart={() => setScreen("app")} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="app"
+            className="relative min-h-screen w-full"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.12 } }}
+            exit={{ opacity: 0, transition: { duration: 0.12 } }}
+          >
+            <AppScreen onHome={() => setScreen("home")} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </PageFrame>
   );
 }
