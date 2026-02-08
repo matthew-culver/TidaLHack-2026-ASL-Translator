@@ -901,7 +901,7 @@ function AppScreen({ onHome, logoImg }) {
         </motion.div>
 
         {/* MAIN GRID */}
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-4.25rem)]">
+        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100%-4.25rem)] min-h-0">
           {/* LEFT PANEL */}
           <motion.div variants={panelFlow} className="lg:col-span-8 h-full">
             <Card className="h-full">
@@ -1047,7 +1047,7 @@ function AppScreen({ onHome, logoImg }) {
           </motion.div>
 
           {/* RIGHT PANEL */}
-          <motion.div variants={panelFlow} className="lg:col-span-4 flex flex-col gap-4 h-full">
+          <motion.div variants={panelFlow} className="lg:col-span-4 flex flex-col gap-4 h-full min-h-0">
             <Card className="p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1076,7 +1076,7 @@ function AppScreen({ onHome, logoImg }) {
               <div className="mt-2 text-xs text-slate-900/60">(Placeholder until inference is wired)</div>
             </Card>
 
-            <Card className="p-4 flex-1 min-h-0">
+            <Card className="p-4 flex-1 min-h-0 flex flex-col">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-slate-900/70">Translation</div>
                 <div className="flex items-center gap-2">
@@ -1098,7 +1098,7 @@ function AppScreen({ onHome, logoImg }) {
               </div>
 
               <div className={"mt-4 flex-1 min-h-0 p-4 " + translationPane}>
-                <div className="h-full overflow-auto pr-1">
+                <div className="h-full min-h-0 overflow-auto pr-1">
                   {outputText ? (
                     <div className="text-slate-900 leading-relaxed text-base whitespace-pre-wrap">{outputText}</div>
                   ) : (
