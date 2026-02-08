@@ -1,13 +1,15 @@
-console.log('🔑 Loaded API Key:', process.env.GEMINI_API_KEY?.substring(0, 20) + '...');
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const multer = require('multer');
+console.log('🔑 Loaded API Key:', process.env.GEMINI_API_KEY?.substring(0, 20) + '...');
 
 
 // Import routes
 const translateRoute = require('./routes/translate');
+const ttsRoute = require("./routes/tts");
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +45,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // Routes
 app.use('/api/translate', translateRoute);
+app.use("/api/tts", ttsRoute);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
