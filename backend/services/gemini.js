@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const stageACache = new Map();
+const STAGEA_TTL_MS = 2000;
 
 // Removes ```json fences and trims
 function stripCodeFences(text) {
@@ -175,7 +176,7 @@ Conversation context (previous detected signs): ${contextSigns || "(none)"}
 /**
  * Analyze ASL sign from video frames using Gemini's multimodal capabilities
  */
-async function analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary) {
+async function analyzeASLSign(currentFrame, previousFrames, conversationContext, vocabulary, sessionKey) {
   const model = genAI.getGenerativeModel({ 
     model: 'gemini-2.5-flash',
     generationConfig: {
@@ -215,10 +216,25 @@ async function analyzeASLSign(currentFrame, previousFrames, conversationContext,
       ).join(' → ')
     : "This is the first sign in the conversation.";
   const contextSigns = (conversationContext || []).map(c => c.sign).join(', ');
-  const features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
+  const cacheKey = `${conversationContext?.sessionId || ""}`; // if you don't have sessionId here, see note below
+  const key = sessionKey || "no-session";
+  const now = Date.now();
+
+  let features;
+  const cached = stageACache.get(key);
+
+  if (cached && (now - cached.at) < STAGEA_TTL_MS) {
+    features = cached.features;
+  } else {
+    features = await extractASLFeatures(model, currentFrame, previousFrames || [], contextSigns);
+    stageACache.set(key, { at: now, features });
+  }
+
   console.log("Stage A features:", features);
+
   const candidates = shortlistVocabulary(vocabulary, features, 7);
-    if (!candidates || candidates.length === 0) {
+
+  if (!candidates || candidates.length === 0) {
     return {
       detectedSign: null,
       confidence: 0,

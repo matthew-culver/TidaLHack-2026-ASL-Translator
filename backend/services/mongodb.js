@@ -1,12 +1,24 @@
+let vocabCache = null;
+let vocabCacheAt = 0;
+const VOCAB_TTL_MS = 30_000; // 30 seconds
+
 const SignVocabulary = require('../models/SignVocabulary');
 const TranslationSession = require('../models/TranslationSession');
 
 /**
  * Get all signs from vocabulary
  */
-async function getVocabulary() {
+async function getVocabulary({ forceRefresh = false } = {}) {
   try {
+    const now = Date.now();
+
+    if (!forceRefresh && vocabCache && (now - vocabCacheAt) < VOCAB_TTL_MS) {
+      return vocabCache;
+    }
+
     const signs = await SignVocabulary.find().lean();
+    vocabCache = signs;
+    vocabCacheAt = now;
     return signs;
   } catch (error) {
     console.error('Error fetching vocabulary:', error);

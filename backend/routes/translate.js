@@ -3,6 +3,9 @@ const router = express.Router();
 const { analyzeASLSign } = require('../services/gemini');
 const { getVocabulary, saveTranslation, createSession, getSession } = require('../services/mongodb');
 const { v4: uuidv4 } = require('uuid');
+const shortlistCache = new Map();
+const SHORTLIST_TTL_MS = 2000; // 2 seconds
+
 
 /**
  * POST /api/translate
@@ -38,8 +41,10 @@ router.post('/', async (req, res) => {
       imageFrame,
       previousFrames || [],
       conversationContext || [],
-      vocabulary
+      vocabulary,
+      sessionId || "no-session"
     );
+
     
     // Save translation to database (if we have a session)
     if (sessionId) {
